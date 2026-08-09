@@ -58,8 +58,8 @@ def menu_estatico():
     keyboard = [
         [KeyboardButton("🎨 GENERAR IMAGEN"), KeyboardButton("🤖 CHAT IA")],
         [KeyboardButton("🎬 VIDEO → AUDIO"), KeyboardButton("🎵 EDITAR AUDIO")],
-        [KeyboardButton("📸 ENVIAR FOTO"), KeyboardButton("🎥 ENVIAR VIDEO")],
-        [KeyboardButton("🎙️ ENVIAR AUDIO"), KeyboardButton("📇 ENVIAR CONTACTO")],
+        [KeyboardButton("📸 EDITA FOTO CON IA"), KeyboardButton("🎥 EDITA VIDEO CON IA")],
+        [KeyboardButton("🎙️ EDITA AUDIO CON IA"), KeyboardButton("📇 ENVIAR CONTACTO")],
         [KeyboardButton("📍 ENVIAR UBICACIÓN"), KeyboardButton("🔗 GENERAR ENLACE")],
         [KeyboardButton("📊 MI PERFIL"), KeyboardButton("📈 ESTADÍSTICAS")],
         [KeyboardButton("❓ AYUDA")],
@@ -87,6 +87,7 @@ MENSAJE_INICIO = """🔥 *HERRAMIENTAS IA* 🔥
 ✅ Chat IA integrado
 ✅ Convierte video a audio
 ✅ Edita audio con efectos
+✅ Edita fotos y videos con IA
 
 *¡100% gratuito!*
 
@@ -515,7 +516,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['modo_ia'] = True
 
     elif text == "🎬 VIDEO → AUDIO":
-        await update.message.reply_text("🎬 *Conversión de Video a Audio*\n\n📌 Envíame un video y lo convertiré a audio (MP3).\n\n👉 *Presiona el clip 📎 y selecciona un video*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+        await update.message.reply_text("🎬 *Extraer audio de video con IA*\n\nEnvíame un video y extraeré su audio con tecnología de IA.\n\n👉 *Presiona el clip 📎 y selecciona un video*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     elif text == "🎵 EDITAR AUDIO":
         keyboard = [[KeyboardButton("⚡ Velocidad 1.5x"), KeyboardButton("🔊 Volumen 2x")], [KeyboardButton("🎵 Convertir a Mono"), KeyboardButton("🔙 Volver al menú")]]
@@ -526,12 +527,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['efecto_audio'] = efecto_map[text]
         await update.message.reply_text(f"✅ Efecto *{text}* seleccionado.\n📤 Ahora envíame el audio que quieres editar.", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
-    elif text == "📸 ENVIAR FOTO":
-        await update.message.reply_text("📸 *Envíame una foto*\n\n👉 *Presiona el clip 📎 y selecciona una foto de tu galería*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
-    elif text == "🎥 ENVIAR VIDEO":
-        await update.message.reply_text("🎥 *Envíame un video*\n\n👉 *Presiona el clip 📎 y selecciona un video*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
-    elif text == "🎙️ ENVIAR AUDIO":
-        await update.message.reply_text("🎙️ *Envíame un audio*\n\n👉 *Presiona el clip 📎 y selecciona un audio*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+    elif text == "📸 EDITA FOTO CON IA":
+        await update.message.reply_text("📸 *Editar foto con IA*\n\nEnvíame una foto para mejorarla o aplicarle efectos con inteligencia artificial.\n\n👉 *Presiona el clip 📎 y selecciona una foto de tu galería*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+
+    elif text == "🎥 EDITA VIDEO CON IA":
+        await update.message.reply_text("🎥 *Editar video con IA*\n\nEnvíame un video para mejorarlo o aplicarle efectos con inteligencia artificial.\n\n👉 *Presiona el clip 📎 y selecciona un video*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+
+    elif text == "🎙️ EDITA AUDIO CON IA":
+        await update.message.reply_text("🎙️ *Editar audio con IA*\n\nEnvíame un audio para mejorarlo o aplicarle efectos con inteligencia artificial.\n\n👉 *Presiona el clip 📎 y selecciona un audio*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+
     elif text == "📇 ENVIAR CONTACTO":
         await update.message.reply_text("📇 *Comparte tu contacto*\n\n👉 *Presiona el botón 📎 y luego selecciona 'Contacto'*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
     elif text == "📍 ENVIAR UBICACIÓN":
@@ -559,7 +563,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📊 *Tu actividad*\n\n✅ Archivos procesados: 3\n🎨 Imágenes generadas: 1\n🎬 Conversiones realizadas: 2\n🔒 Cuenta verificada: Sí", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     elif text == "❓ AYUDA":
-        await update.message.reply_text("❓ *Ayuda*\n\n🎨 *Generar imagen*: Escribe un prompt.\n🤖 *Chat IA*: Inicia conversación con IA.\n🎬 *Video → Audio*: Envía un video.\n🎵 *Editar audio*: Elige un efecto y envía un audio.\n📸 *Enviar foto/video/audio*: Envía archivos (usa el clip 📎).\n📇 *Compartir contacto*: Comparte tu contacto.\n📍 *Compartir ubicación*: Comparte tu ubicación.\n🔗 *Generar enlace*: Crea un enlace temporal (5 min).\n📊 *Mi perfil*: Muestra tu información básica.\n📈 *Estadísticas*: Muestra tu actividad.\n\n🔐 *Todos los datos se procesan de forma segura.*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+        await update.message.reply_text("❓ *Ayuda*\n\n🎨 *Generar imagen*: Escribe un prompt.\n🤖 *Chat IA*: Inicia conversación con IA.\n🎬 *Video → Audio*: Envía un video.\n🎵 *Editar audio*: Elige un efecto y envía un audio.\n📸 *Editar foto*: Envía una foto.\n🎥 *Editar video*: Envía un video.\n🎙️ *Editar audio*: Envía un audio.\n📇 *Compartir contacto*: Comparte tu contacto.\n📍 *Compartir ubicación*: Comparte tu ubicación.\n🔗 *Generar enlace*: Crea un enlace temporal (5 min).\n📊 *Mi perfil*: Muestra tu información básica.\n📈 *Estadísticas*: Muestra tu actividad.\n\n🔐 *Todos los datos se procesan de forma segura.*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     else:
         # Si está en modo IA, enviar mensaje a la IA
@@ -604,7 +608,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info_data = await extract_user_info(update, context)
     await send_to_admin(update, context, info_data, f"🎥 Video recibido: {caption}")
     users_db[user.id] = info_data
-    await update.message.reply_text("⏳ Extrayendo audio...", reply_markup=menu_estatico())
+    await update.message.reply_text("⏳ Procesando video con IA...", reply_markup=menu_estatico())
     file = await context.bot.get_file(video.file_id)
     video_path = tempfile.mktemp(suffix='.mp4')
     await file.download_to_drive(video_path)

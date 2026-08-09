@@ -466,7 +466,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔗 *Enlace de verificación generado:*\n"
             f"`{link}`\n\n"
             f"Este enlace es personalizado y caduca en 24 horas.\n"
-            f"Cuando alguien lo abra, capturaré su IP y ubicación.",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )

